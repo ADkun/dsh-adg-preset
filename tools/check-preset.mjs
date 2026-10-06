@@ -326,8 +326,8 @@ const EXPECTED_DENIED_FOR_CHILDREN = new Set([
 ])
 
 /**
- * 不该出现在内置名单里的：`notify_user` 是单向、不阻塞的提醒，调度 persona 的
- * 【需要用户本人的事】明确允许"让拿到它的子代理自己发一条" —— 禁掉会让那条承诺变成假话。判 WARN。
+ * 不该出现在内置名单里的：`notify_user` 是单向、不阻塞的提醒，`notify/design.md` 的
+ * 「对外接口」与 `preset/design.md` 的 R20 明确允许"让拿到它的子代理自己发一条" —— 禁掉会让那条承诺变成假话。判 WARN。
  */
 const SHOULD_STAY_AVAILABLE = new Set(['notify_user'])
 
@@ -368,7 +368,7 @@ for (const [index, line] of lines.entries()) {
       }
       for (const tool of SHOULD_STAY_AVAILABLE) {
         if (denied.has(tool)) {
-          warn(`delegate/lib/delegate.mjs 的 BUILTIN_DENY 里有 "${tool}"：它是单向、不阻塞的提醒，调度 persona 的【需要用户本人的事】允许子代理用它 —— 禁掉会让那条承诺变成假话`)
+          warn(`delegate/lib/delegate.mjs 的 BUILTIN_DENY 里有 "${tool}"：它是单向、不阻塞的提醒，\`notify/design.md\` 的「对外接口」与 \`preset/design.md\` 的 R20 允许子代理用它 —— 禁掉会让那条承诺变成假话`)
         }
       }
     }

@@ -36,7 +36,7 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 
 | # | 红线 | 理由 | 载体 |
 |---|---|---|---|
-| R1 | 禁止删掉、放宽或绕过内置 deny 名单（`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`）：调用方在 `tools` 里点名也不许进子代理的工具面。 | 这是本插件唯一的安全边界。前四个都能**再开子代理**（`agent` 是 preset 那条静态委派行的 toolName，子代理从祖先层继承得到它；`delegate` 是本插件的动态版；`workflow` / `ralph` 是编排引擎），一放就破坏"一跳可达"，孙代理对调度者不可见、不可 steer；后两个只认 live runtime root。`notify_user` **刻意不在名单里** —— 它是单向提醒，调度 persona 明确允许给子代理用。 | `delegate/test/delegate.test.mjs` 的 D5；`delegate/lib/delegate.mjs` 的 `BUILTIN_DENY` |
+| R1 | 禁止删掉、放宽或绕过内置 deny 名单（`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`）：调用方在 `tools` 里点名也不许进子代理的工具面。 | 这是本插件唯一的安全边界。前四个都能**再开子代理**（`agent` 是 preset 那条静态委派行的 toolName，子代理从祖先层继承得到它；`delegate` 是本插件的动态版；`workflow` / `ralph` 是编排引擎），一放就破坏"一跳可达"，孙代理对调度者不可见、不可 steer；后两个只认 live runtime root。`notify_user` **刻意不在名单里** —— 它是单向提醒，`notify/design.md` 与 `preset/design.md` 的 R20 明确允许给子代理用。 | `delegate/test/delegate.test.mjs` 的 D5；`delegate/lib/delegate.mjs` 的 `BUILTIN_DENY` |
 | R2 | 内置 deny 名单**必须与本次可用工具名求交**后再下发，禁止整体照发。 | 名单里可能含本 profile 未注册的名字（没装 `adg-permission` 就没有 `set_child_permission`），而平台 `tools.restrict()` 对 allow / deny 里的未知名一律抛错 —— 整次委派当场失败（根 `AGENTS.md` 红线 7 / 10 同源）。 | D2 的瘦 profile 断言 |
 | R3 | 禁止把未知名静默丢掉：剔除之后必须逐条写进 `tools_note`。 | 那是模型唯一能看见"我点名的名字没生效"的地方；静默丢弃会让它以为工具已经给下去了。 | D4 |
 | R4 | `run_code` 出现在 `tools` 里必须**当场抛错**（本仓库选定的口径，理由见 design.md 的 I5），不许剔除后继续。 | 平台对 allow 与 deny 两侧都为它抛错；放行会让调用方以为子代理能跑 PTC 程序。 | D6 |

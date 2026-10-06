@@ -57,7 +57,7 @@ last_reviewed: 2026-10-05
 **I1 内置 deny 名单是安全边界，这六个名字恒不给子代理。**
 `agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`，硬编码在 `BUILTIN_DENY`。
 前四个是**能再开子代理**的入口：`agent` 是 preset 里那条静态委派行的 toolName（子代理从祖先层继承得到它）、`delegate` 是本插件的动态版、`workflow` 与 `ralph` 是编排引擎（`ralph` 那行的 config 是 `subagentProvider: spawn`）—— 放进任何一个，"一跳可达"当场失效，孙代理对调度者不可见、不可 steer。后两个（`set_child_permission` / `ask_user_question`）只认 live runtime root。
-`notify_user` **刻意不在名单里**：它是单向、不阻塞的提醒，调度 persona 的【需要用户本人的事】明确允许给子代理用，好让撞上登录墙的后台子代理自己第一时间喊人，不必等调度者中转。
+`notify_user` **刻意不在名单里**：它是单向、不阻塞的提醒，`notify/design.md` 与 `preset/design.md` 的 R20 明确允许给子代理用，好让撞上登录墙的后台子代理自己第一时间喊人，不必等调度者中转。
 下发方式：调用方给了 `tools` ⇒ `{allow: <清单∩可用名>, deny: <内置名单∩可用名>}`；省略 `tools` ⇒ 只 `{deny: …}`（平台语义是"先按 deny 去掉、再按 allow 只留"，两者都只减不增）。
 载体：D5；`delegate/lib/delegate.mjs` 的 `BUILTIN_DENY`。
 

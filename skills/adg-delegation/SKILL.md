@@ -75,7 +75,7 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 | 建议 persona 要点（【验收标准】） | 给出操作步骤、抽取到的数据（逐条附出处 URL）或日志证据；被登录墙或验证码阻断时写明卡在哪一步、需要用户做什么；视觉结论要基于 `read_image` 看到的画面，不能只凭 DOM 文本 |
 | 深水区 | 给技能 `${DSH_HOME:-~/.dsh}/skills/adg-browser-use/SKILL.md` |
 
-**必须完全权限**（`danger-full-access`）；派发前先读你自己上下文里的 `Current DSH file policy:` 并问一次用户（三选项：切到完全权限后派 / 降级只做 `web_fetch` 静态抓取 / 暂不做）。这次委派的**模式（有头 / 无头）由用户在派发前选定，原话写进 `prompt`** —— 子代理问不了用户，`prompt` 里没写它只能按默认无头开工。
+**必须完全权限**（`danger-full-access`）；派发前先读你自己上下文里的 `Current DSH file policy:` 并问一次用户（三选项：切到完全权限后派 / 降级只做 `web_fetch` 静态抓取 / 暂不做）。这次委派的**模式（有头 / 无头）由你判定后写进 `prompt`** —— 完全确定不需要登录 / 验证码就无头；确定要登录 / 过验证码就有头；拿不准就先无头，并在 `prompt` 里写明「撞上登录墙 / 验证码就 `launch --headed` 换有头并停手报回」。子代理问不了用户，`prompt` 里没写它只能按默认无头开工。
 
 ### ④ 全网检索
 

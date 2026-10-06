@@ -27,8 +27,8 @@ export const SUBAGENT_KINDS = Object.freeze(['continuable', 'background', 'foreg
  * 后两个只认 live runtime root：
  * - `set_child_permission` / `ask_user_question`：子代理拿不到人类答主，也没有"自己派出去的子代理"这回事。
  *
- * 刻意**不在**名单里的：`notify_user`。它是单向、不阻塞的提醒，而调度 persona 的
- * 【需要用户本人的事】明确允许"让拿到 `notify_user` 的它自己发一条单向提醒" ——
+ * 刻意**不在**名单里的：`notify_user`。它是单向、不阻塞的提醒，`notify/design.md` 与
+ * `preset/design.md` 的 R20 明确允许"让拿到 `notify_user` 的它自己发一条单向提醒" ——
  * 后台子代理撞上登录墙时就该能自己第一时间喊人，不必等调度者中转。
  */
 export const BUILTIN_DENY = Object.freeze([
