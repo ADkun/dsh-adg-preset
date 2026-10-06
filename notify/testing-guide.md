@@ -1,0 +1,122 @@
+---
+title: notify 模块测试指南
+owner: Adg preset 维护者
+status: current
+last_reviewed: 2026-10-04
+---
+
+# notify 模块测试指南
+
+本模块有两层验证，**别把它们混起来**：
+
+- **机制层**（自动化；"真弹一次"是可选的、需要人看着屏幕的动作）：工具注册对不对、失败路径抛不抛错、toast 到底弹不弹得出来。`node --test test` 与 `node cli.mjs send` 覆盖这一层。
+- **装载层**（只能重启后观测）：dsh 有没有真的把这个包装进 profile 并注册进全局层。静态证据只能证到"包在 + 被选中"，**证不到"运行期已注册"**（见「验证 ≠ 装载」）。
+
+## 命令（可直接照抄）
+
+下列命令的 cwd 都是仓库的 `notify/` 目录：
+
+```sh
+node --test test                        # 单元测试；不弹窗、不起真进程（测试注入假 spawn），可安全跑
+node --test --test-isolation=none test  # DSH 沙箱（workspace-write）里必须加这个 flag
+node cli.mjs help                       # exit 0；打印命令契约
+node cli.mjs send                       # 须 exit 2（缺 --message）
+node cli.mjs send --message x --ms soon # 须 exit 2（--ms 非整数）
+node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同一个内核）；会打扰用户，只在要人看时跑
+```
+
+**自测能跑起来的前提**：仓库根的 `node_modules/` 必须存在 —— 它是**解析桥**，把 `@deepseek-ai/*` 链到本机 dsh 安装处，好让本模块的自测能像运行时那样解析可选 peer 依赖 `@deepseek-ai/dsh-tools`。它不入库（被 `.gitignore` 排除）、是本机产物而不是依赖清单；缺了它，`node --test test` 会直接 import 失败。判据（在仓库根跑）：`node -p "require('@deepseek-ai/dsh-tools/package.json').version"` 能打印出版本号。
+
+## 用例总表
+
+用例从 `notify/design.md` 的不变量穷举而来；下面的组前缀就是 `notify/test/notify.test.mjs` 里测试标题的前缀（同一组可能有多条用例，**条数是当场读数、不作锚**）。载体一律是 `[机检] cd notify && node --test test`，判据＝exit 0 且没有失败用例。
+
+| 用例 | 对象 | 断言内容 | 对应不变量 | 载体 |
+|---|---|---|---|---|
+| D1 | 工具注册 | `apply()` 在 stub ctx 上只注册一个工具、名字是 `notify_user`；`export const name` 与 patch 行的 `id` 一致（不一致时 patch 行找不到插件入口） | I7 | [机检] |
+| D2 | 工具定义 | 参 schema 的**编译产物**只把 `message` 标必填；**用真 `defineTool` 造定义不抛错**（＝"注册那一刻不会炸"的唯一离线证据）；**反向对照**：对象根形状喂给真 `defineTool` 必须抛 `/parameters\.type must be a value schema object/`（否则上一条是空转）；缺 `message` 的调用在**进 `execute` 之前**就被参数校验拦下 | I13 / I14 | [机检] |
+| D3 | Notification / ToastResult | 成功路径返回 `{ shown:true, mechanism:'toast', … }` 并把 `title` / `silent` 透传；**未传 `silent` 时落到默认出声**（I3 的回归：键存在但值为 `undefined` 不许把默认值判反） | I3 / I6 | [机检] |
+| D4 | ToastResult | 全部失败路径各自抛错、且**不返回 `shown:false`**；"PowerShell 不存在"抛错前**不起进程**；超时抛错前先 `child.kill()`；"机制不可用"与"非 Windows"都在内；成功路径用 `stdio:'ignore'` 起进程 | I6 | [机检] |
+| D5 | Notification / ToastRequest | argv 是 Windows PowerShell 5.1 的调用形状，`-Sound` / `-DisappearAfterMs` 随参数走；空 `message` / 非字符串 `title` / 非整数毫秒都被拒；默认标题 `DSH 通知`、默认存活 `0`（⇒ `scenario="reminder"`，常驻） | I1 / I2 / I4 / I5 | [机检] |
+| D6 | 脚本资产 / ToastRequest | `notify/scripts/toast.ps1` **ASCII-only、无 BOM、含 `$ErrorActionPreference = 'Stop'`**，用的是 Windows PowerShell 5.1 宿主、不出现 `pwsh.exe`、不出现 `BurntToast` | I4 | [机检] |
+| D7 | 路径解析 | 在 Windows 上默认解析到 `System32\WindowsPowerShell\v1.0\powershell.exe`（不是 `pwsh`）；`PACKAGE_ROOT` 由本文件位置推出，**不写死绝对路径** | I4 | [机检] |
+
+一条**最重要的测试纪律**（D2 的来源）：造工具定义必须用**真的** `defineTool`（本地助手 `realToolDefinition()`）。只跑 stub 的自测证明不了这个插件能被装载 —— schema 形状写错时 `apply()` 会在注册那一刻抛 `JsonSchemaError`。
+
+跑法上的两个细节：测试用 `FakeChild` + `fakeSpawn(plan)` 注入替身，**一个真进程都不起**（所以无桌面环境也能全绿）；D6 直接读 `notify/scripts/toast.ps1` 的字节，BOM 与 ASCII 是**字节级**断言，不是"看起来没问题"。
+
+## 迁移矩阵
+
+**无。** 本模块的对象（Notification / ToastRequest / ToastResult）与两条作者侧契约（`parameters` / `output`）都是**不可变值对象**，没有状态机、没有状态迁移（见 `design.md` 的「核心数据模型」）。逐格验证由上面的用例总表承担，本节不设矩阵表。
+
+## 消费方契约测试
+
+本模块有两个消费方，消费的**形状**不同 —— 改它们之前先看这一节。
+
+### 消费方（调度 persona 与每次委派的 `tools`）消费的是**工具名**
+
+`notify_user` 由调度者在 `delegate` 的 `tools` 里逐次给（`delegate` 的内置 deny 里**没有**它），`tools/check-preset.mjs` 的 `KNOWN_TOOLS` 也收了这个名字。名字必须**恰好等于** `TOOL_NAME`（`notify/index.mjs`）；**改了工具名就要同步改 `tools/check-preset.mjs` 的 `KNOWN_TOOLS` 与 `delegate` 侧的名字口径**，否则两侧各有后果：preset 的静态 `allow` 里出现未知名时 `dsh-tools` 的 `restrict()` 会在**派发那一刻**抛 `names unknown global tool notify_user`，整次委派失败；经 `delegate` 的 `tools` 点名的未知名则会被剔除并逐条写进 `tools_note`（不静默丢、也不让那次委派失败）。
+
+漂移检测（机检）：在仓库根跑 `node tools/check-preset.mjs`，判据＝exit 0（允许 WARN；ERROR 的含义只有一个 —— 那次委派必然抛错）。**不要把它打印的读数写进文档**：`allow` 项数、警告条数、委派行数都是当场读数、不作锚，结构性判据在脚本里。
+
+### `install.ps1` / `install.sh` 消费的是**目录名与包名**
+
+- 源目录名固定 `notify\`（`$notifySrc` / `notify_src`），落点 `${DSH_HOME:-~/.dsh}/plugins/adg-notify/`（`$notifyDest` / `notify_dest`）；改仓库目录名要同时改两个脚本。
+- 包名 `adg-notify` 同时出现在：稳定副本的 `package.json`、profile 的 `dependencies`、profile 的 `dsh.profile.bundles`、安装脚本第 4c-1 步的断言里。改名要四处一起改。
+- **稳定副本与 profile 副本是硬链接（同一个文件）** ⇒ 刷新稳定副本（`Copy-Item` 就地覆盖，链接因此存活）就等于刷新所有 profile 副本，**不需要 `dsh plugin remove` + `add`**；而仓库源与稳定副本在不同盘、不可能硬链接 ⇒ 改了仓库里 `notify/` 的源码**必须重跑一次安装脚本**（第 2b 步输出里说明已是最新，就是没改）。判据（当场读数、不作锚）：`fsutil hardlink list <稳定副本>\package.json` 与对 profile 副本的同一条命令返回同一组路径，`fsutil file queryFileID` 两处返回同一个 ID。
+
+漂移检测（人工 review）：核对两个脚本的拷贝清单与 `notify/package.json` 的 `files` 字段。**两者故意不同**：脚本多拷 `notify/cli.mjs` 与 `notify/package.json` —— 前者是开发机上的自测入口，不需要被 pnpm 打进 profile 副本；后者是包清单，pnpm 总会拷。判据：profile 的 `node_modules/adg-notify/` 里**运行期三件套**（包内相对路径 `index.mjs` / `lib/toast.mjs` / `scripts/toast.ps1`）加 `cordis.patch.yml`、`package.json` 都在，且**没有** `cli.mjs`。`files` 里漏掉运行期文件才是缺陷。
+
+## 验证 ≠ 装载
+
+这一节是本模块最容易自欺的地方，单独列出来。
+
+**能证明的**（不重启）：
+
+1. `node --test test` 全绿 ⇒ 注册与失败路径的**代码**是对的（判据：exit 0、没有失败用例）。
+2. `node cli.mjs send --message …` exit 0 ⇒ **toast 通路**在这台机器上真的能用（与 `notify_user` 同一个 `sendToast`）。
+3. profile 的 `package.json` 里 `dependencies.adg-notify` 与 `dsh.profile.bundles` 都出现，且 `<profile>/node_modules/adg-notify/package.json` 存在 ⇒ **装了，且被选中**。安装脚本第 4c-1 步做的就是这三格断言。
+4. `<profile>/node_modules/adg-notify` 是**真目录**（`LinkType` 为空）、不是符号链接。
+5. **"插件与 preset 由同一个脚本同一次装上"可以当场证**（这是那些点它的 `tools` 成立的前提，I9）：一次 `install.*` 运行既做第 2b / 4c / 4c-1 步（插件）又生成四份 `bundle/adg-*` 并链接 profile 的 preset bundle；`<profile>/node_modules/dsh-adg-preset` 是指向 `$DSH_HOME/bundles/dsh-adg-preset-<味道>` 的 **Junction**（`LinkType: Junction`），四个稳定目录里的 `cordis.patch.yml` 与 `bundle/adg-*` 产物应当逐字节一致（判据：SHA256 比对）。
+
+**证明不了的**（必须重启）：
+
+- dsh 的 loader 有没有 import 这个包、`ctx.tools.register` 有没有真的执行 —— ES 模块按解析路径缓存，被替换的代码不会被重新 import。
+- 因此也证明不了"子代理真的能看见 `notify_user`"。要验它：**重启 dsh → 新建会话 → 用 `delegate` 派一个带 `notify_user` 的子代理，让它在撞上登录墙时调它**（或先看它那次拿到的工具面里有没有这个名字）。
+
+**一条很容易踩的假证据**：`dsh --dump-config` / 读静态文件只能说明"配置里有这一行"，**说明不了挂载**。根 `AGENTS.md` 的「Quality Gates」一节对 preset 写的是同一条口径（"静态自检证明不了挂载"）。
+
+## 人工 review 项
+
+自动化抓不到、必须真机跑或必须有人看的部分；每条都带量法。**未观测不许写成实测，也不许写成"不可观测"。**
+
+- **未观测**：重启 dsh 后 `notify_user` 是否真的出现在某次委派给出的子代理工具面里；量法：重启 dsh → 新建 Adg 对话 → 用 `delegate` 派一个带 `notify_user` 的子代理，看它那次拿到的工具面里有没有这个名字，或直接派一次"撞登录墙"的任务看它是否调 `notify_user`。
+- **未观测**：子代理是否会在正确的时机主动调它；量法：在会话转写里检索 `notify_user` 的调用；若出现"撞了登录墙却干等 / 直接失败"，说明 description 的触发面写得不够。
+- **未观测**：toast 在桌面上的可见形态（是否出现在右下角 / 通知中心、标题与多行正文的排版）；量法：跑 `node cli.mjs send --show`，`--message` 里带两行正文，人眼确认。
+- **未观测**：默认 `disappearAfterMs = 0`（`scenario="reminder"`）在真机上的实际驻留形态 —— 是否真的留在通知中心直到用户处理、以及"提醒"场景下 Windows 是否另加一层过期策略；量法：`node cli.mjs send --message '常驻测试' --show`（默认 ms=0），人眼确认通知**不自动消失**，并检查 `Get-Date` 后多分钟仍在通知中心；反向对照跑一次 `--ms 5000`，确认它确实会自己消失。
+- **未观测**：宿主正在运行时 `dsh plugin add` 的失败形态（`os error 32` 是**预期**，脚本会如实报告并不中断后续步骤）；量法：宿主在跑时执行 `install.ps1`，看第 4c 步是否如实报告且没有中断；要真正走到 `dsh plugin add`，先 `dsh plugin --profile <profile> remove adg-notify`（宿主在跑时有风险，何时做由人决定）。
+- **未观测**：非 Windows 平台的形状；量法：在非 Windows 机器上跑 `node --test test`，看非 win32 那条用例通过、其余按预期失败。本模块的定位就是 Windows 通知，**不打算**为其他平台实现降级。
+- **未观测**：并发投递（连续两条通知 Windows 会不会吞掉一条、通知中心里是一条还是两条）；量法：`node cli.mjs send --message a && node cli.mjs send --message b`，看通知中心。
+
+## 交付前的最小闭环
+
+```powershell
+cd notify
+node --test --test-isolation=none test          # 须 exit 0、没有失败用例
+node cli.mjs send                               # 须 exit 2
+node cli.mjs send --message x --ms soon         # 须 exit 2
+node cli.mjs send --message '闭环测试' --show    # 须 exit 0，屏幕上真弹一条；会打扰用户，只在需要人看时跑
+
+# 部署侧（可在宿主运行时跑，失败按「已知限制」口径如实报告）
+# 必须用 Windows PowerShell 5.1 跑（`powershell`），不是 `pwsh`：install.ps1 是按 5.1 写的、带 BOM 的脚本
+powershell -NoProfile -ExecutionPolicy Bypass -File ..\install.ps1 -Profiles <profile>
+# 装完后的三格证据（不重启能拿到的最强）：
+# 落点以本机 DSH_HOME 为准（缺省才是 $HOME\.dsh）；install 脚本同样优先读它，取值非绝对路径时先归一、归一不到就停下报错：
+$dshHome = if ($env:DSH_HOME) { $env:DSH_HOME } else { Join-Path $HOME '.dsh' }
+Select-String -Path "$dshHome\profiles\<profile>\package.json" -Pattern 'adg-notify'
+Get-Item "$dshHome\profiles\<profile>\node_modules\adg-notify" | Select-Object LinkType
+```
+
+（`<profile>` 换成你自己的 profile 名 —— 即 `~/.dsh/profiles/` 下的目录名；本文件其余 `<profile>` 同义。）
+
+（第 2b 步按 **SHA256 内容比对**决定要不要拷；稳定副本已是最新时它只说明已是最新、无需拷贝。）
