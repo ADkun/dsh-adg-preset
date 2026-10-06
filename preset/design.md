@@ -1,6 +1,6 @@
 ---
 title: preset — Adg preset 的定义
-owner: adg-multi-agent
+owner: dsh-adg-preset
 status: current
 last_reviewed: 2026-10-04
 ---

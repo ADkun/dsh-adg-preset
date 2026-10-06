@@ -26,13 +26,13 @@
 ### 手动安装
 
 ```sh
-git clone <repo-url> ~/adg-multi-agent
-sh ~/adg-multi-agent/install.sh                     # macOS / Linux
+git clone <repo-url> ~/dsh-adg-preset
+sh ~/dsh-adg-preset/install.sh                     # macOS / Linux
 ```
 
 ```powershell
-git clone <repo-url> $HOME\adg-multi-agent
-powershell -ExecutionPolicy Bypass -File $HOME\adg-multi-agent\install.ps1   # Windows
+git clone <repo-url> $HOME\dsh-adg-preset
+powershell -ExecutionPolicy Bypass -File $HOME\dsh-adg-preset\install.ps1   # Windows
 ```
 
 要求 **Node ≥ 22**。

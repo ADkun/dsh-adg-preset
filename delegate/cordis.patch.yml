@@ -1,4 +1,4 @@
-# adg-delegate 的 bundle 层（adg-multi-agent 仓库内部的第一方插件）。
+# adg-delegate 的 bundle 层（dsh-adg-preset 仓库内部的第一方插件）。
 #
 # 一行 `insert` 落在**顶层**（＝ global 层，无 scope 的 ctx）：所以装了本 bundle 的 dsh 里，
 # `delegate` 是一个全局工具名 —— 它既能出现在调度者的工具面里，也能被写进任何子代理的

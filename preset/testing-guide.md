@@ -1,6 +1,6 @@
 ---
 title: preset — 测试与验证
-owner: adg-multi-agent
+owner: dsh-adg-preset
 status: current
 last_reviewed: 2026-10-04
 ---
