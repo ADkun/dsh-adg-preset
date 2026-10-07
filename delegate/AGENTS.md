@@ -70,7 +70,7 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 | 改了什么 | 怎么生效 | 怎么复核 |
 |---|---|---|
 | `delegate/` 任何文件 | 重装子插件（`install.*`：稳定副本 + `dsh plugin --profile <p> add`）+ **重启 dsh** + 新会话 | `cd delegate && node --test test`；再在新会话里让调度者用一次 `delegate`（给一个 `tools` 清单与一段 persona），按 [testing-guide.md](testing-guide.md) 的「验证 ≠ 装载」核对 `tools_note` 与子代理实际拿到的工具面 |
-| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `doc-engineer` 技能的质量红线清单自检 |
+| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `adg-doc-criterion` 技能的质量红线清单自检 |
 
 **未观测**：装好子插件并重启 dsh 之后，`delegate` 是否真出现在调度者的工具面里、子代理是否真按这一次的 `tools` 与 `persona` 建立；量法：在新会话里让调度者用一次 `delegate`（给一个 `tools` 清单与一段 persona），按 [testing-guide.md](testing-guide.md) 的「验证 ≠ 装载」核对 `tools_note` 与子代理实际拿到的工具面。
 

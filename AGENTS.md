@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-adg-preset
 
-Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、三个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面）、五份用户技能（`skills/`）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
+Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、三个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面）、六份用户技能（`skills/`）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
 
 本文件是**给改这个仓库的人/agent 看的路由入口**：只写常驻内容（命令、红线、模块地图、质量门），设计细节一律下沉到模块文档。**给人看的项目总览与安装/使用说明在 `README.md`**（改任何东西之前先读它对应的小节）。
 
@@ -95,7 +95,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | composition 里写的 `@deepseek-ai/*` 包名 | 包名会随 dsh 升级**改名**，改完必须真实挂载 | `agentPresets.resolve('adg')` 的 `.broken` 为空；用旧名会报 `… never started` |
 | `browser/` 任何文件 | **重新跑一次 `install.*` 即生效，不用重启** —— 它是用户根下的普通文件，不是 preset 也不是插件 | `node "${DSH_HOME:-~/.dsh}/browser/cli.mjs" profile` |
 | `desktop/` 任何文件 | 同上口径：**重新跑一次 `install.*` 即生效，不用重启**（用户根下的普通文件）。但要注意**调用它的那一次会话**：要真正驱动普通用户窗口，必须跑在完全权限（`danger-full-access`）下，受限会话的 Low 完整性级别会被 UIPI 拦下且静默丢事件 | `node "${DSH_HOME:-~/.dsh}/desktop/cli.mjs" profile`；注入类命令只认 `CHANGED=true` 与 `CURSOR_LANDED=true` |
-| 本仓库任何 `.md` 文档 | 立即生效（只是文件） | 按 `doc-engineer` 技能的质量红线清单自检 |
+| 本仓库任何 `.md` 文档 | 立即生效（只是文件） | 按 `adg-doc-criterion` 技能的质量红线清单自检 |
 
 ## Project Map
 
@@ -111,18 +111,18 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 
 **新建模块的登记义务**：在 Project Map 加一行（唯一的登记点），并按「三信号」判断要不要给新模块建 `AGENTS.md`（有独立命令 / 有模块特有红线 / 需要跨模块路由，三者有其一方建）。
 
-不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的五份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下；前四份均无独立命令，`adg-grill-me` 另有 `/adg-grill-me` 这个用户入口）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
+不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的六份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下，均无独立命令；`adg-grill-me` 另有 `/adg-grill-me` 这个用户入口）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
 
 ## 版本区（文档目录入口）
 
-版本区 = **一批最终文档**，每个治理域各一份当前真相（写法规范按**名字**引用 `doc-engineer` 技能，本仓库不自持写作规范）。**过程件一律住在被 `.gitignore` 排除的临时工作目录 `docs-work/`，不进版本区，任务交付前必须清空到空目录** —— 仓库里只留最终文档，变更史由 git 提交历史承担。确有长期价值的内容，先合并进对应的最终文档，再删原件。
+版本区 = **一批最终文档**，每个治理域各一份当前真相（写法规范按**名字**引用 `adg-doc-criterion` 技能，本仓库不自持写作规范）。**过程件一律住在被 `.gitignore` 排除的临时工作目录 `docs-work/`，不进版本区，任务交付前必须清空到空目录** —— 仓库里只留最终文档，变更史由 git 提交历史承担。确有长期价值的内容，先合并进对应的最终文档，再删原件。
 
 | 文档 | 是什么 |
 |---|---|
 | `AGENTS.md`（本文件） | 根入口：路由（命令 / 红线 / 生效方式 / 模块地图 / 版本区 / 质量门） |
 | `README.md` | 人向总览：项目是什么、怎么装、怎么用、怎么排错 |
 | `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
-| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me`） | 五份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈（装到用户技能根） |
+| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion`） | 六份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈 / 文档工程师角色规范（装到用户技能根） |
 | `docs-work/`（**临时工作目录，不在版本区**） | 过程件（changelog / handoff / pending / 工作稿 / 证据快照）；滚动更新、可被清理，任务交付前清空 |
 
 模块 `AGENTS.md` 的「版本区」一节指回本表，只登记本模块那三份，不另抄一份清单。
@@ -167,7 +167,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 改 `delegate` 插件本身（工具名 / 参数 / 内置 deny 名单 / 装载方式） | `delegate/AGENTS.md` | `delegate/design.md` → `delegate/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-2 / 4c-4 / 4c-5 步 |
 | 改浏览器那一段委派口径（模式 / 登录态 / 权限闸门） | `preset/design.md` 的「核心数据模型」里 SchedulerPersona 一节（浏览器模式闸门的选择理由在 `preset/agent.cordis.yml` 调度 persona 的 `【浏览器：模式】` 段） | `browser/AGENTS.md`（它消费的命令行契约）→ 根 `README.md` 的「浏览器工具链与登录态资产」一节 → 改完 `node tools/check-preset.mjs` |
 | 只是想装到本机 | `README.md` 的「安装」一节 | `install.sh` / `install.ps1` |
-| 改文档 | `doc-engineer` 技能 | 本文件的「版本区」一节 |
+| 改文档 | `adg-doc-criterion` 技能 | 本文件的「版本区」一节 |
 
 ## Quality Gates
 
@@ -181,7 +181,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 权限子插件 | 机检：`cd permission && node --test test`（沙箱里加 `--test-isolation=none`）；改了守卫或写入路径再在**新会话**里对任一已派出的子代理真调一次 `set_child_permission` | 单元测试全绿；运行中那次 `applied=live`、已停下那次 `applied=persisted`、把权限改到超过调用方自己的那次被拒 |
 | 委派插件 | 机检：`cd delegate && node --test test`（沙箱里加 `--test-isolation=none`）；再在**新会话**里让调度者真用一次 `delegate` | 单元测试全绿；返回的 `tools` / `tools_note` 与子代理实际拿到的工具面一致（点名未知名要被逐条剔除并记进 `tools_note`，点 `run_code` 当场抛错） |
 | 桌面工具链 | 机检：`cd desktop && node --test test`（沙箱里加 `--test-isolation=none`）；改了注入路径再按 `desktop/testing-guide.md` 的「交付前的最小闭环」在**完全权限**会话里跑一次真机闭环 | 单元测试全绿；真机闭环每步的 `CHANGED=` / `CURSOR_LANDED=` 与期望一致（只用 `--dry-run` 证明不了注入） |
-| 文档合规 | 评/机检：按 `doc-engineer` 技能的质量红线清单逐条自检；`AGENTS.md` 的 Project Map 与「版本区」表要覆盖本仓库全部模块与文档 | 逐条通过；行数在 `doc-engineer` 技能给的预算内（量法：`node -e "const f=process.argv[1],s=require('fs').readFileSync(f,'utf8');console.log(s.split('\n').length-(s.endsWith('\n')?1:0))" <文件>`，当场读，读数不作锚） |
+| 文档合规 | 评/机检：按 `adg-doc-criterion` 技能的质量红线清单逐条自检；`AGENTS.md` 的 Project Map 与「版本区」表要覆盖本仓库全部模块与文档 | 逐条通过；行数在 `adg-doc-criterion` 技能给的预算内（量法：`node -e "const f=process.argv[1],s=require('fs').readFileSync(f,'utf8');console.log(s.split('\n').length-(s.endsWith('\n')?1:0))" <文件>`，当场读，读数不作锚） |
 | 文档里的引用真实存在 | 机检：先取出文档里全部反引号路径引用与链接目标，再逐条判存在（不要抽查几条） | 全存在。命令逐条敲一遍；被 `.gitignore` 排除的临时工作目录只许以反引号路径提及，不许做链接（落点与口径见「版本区（文档目录入口）」一节） |
 
 **能力的边界（不许越界宣称）**：`tools/check-preset.mjs` 是**逐行文本扫描器，不是 YAML 解析器** —— 它证明不了文件能被 YAML 解析，也证明不了 preset 真的挂载。**未观测的结论不许写成实测，也不许写成"不可观测"**：每条未观测项必须就地写成一行 `**未观测**：<问题>；量法：<怎么测>`（不设集中台账，要判"量过没有"就搜 `**未观测**：`），引用别人记载的实测必须写明来源、不得写成自己验证过 —— 不然下一个读者会把没量过的东西当前提用。

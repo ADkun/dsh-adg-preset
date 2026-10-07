@@ -21,7 +21,7 @@ last_reviewed: 2026-10-04
 - 不负责 dsh 平台的 composition/realm 机制本身（`@deepseek-ai/*` 的插件语义），只按其契约使用。
 - 不负责成本审计脚本：本模块只规定"改动前后各量一次"的口径。
 - 不负责给人看的安装与使用说明：那是根 `README.md`。
-- 不负责文档写作规范：规范来源按名字引用 `doc-engineer` 技能（`editing-cordis-compositions` 同属这类按名字引用的技能，但它随 `@deepseek-ai/dsh-agent-preset` 包出货，不在本仓库里）。
+- 不负责文档写作规范：规范来源按名字引用 `adg-doc-criterion` 技能（`editing-cordis-compositions` 同属这类按名字引用的技能，但它随 `@deepseek-ai/dsh-agent-preset` 包出货，不在本仓库里）。
 - 不定义任何固定岗位：子代理每次能干什么，由那条委派行的 `toolFilter.allow`（本 preset 不写它）与 `delegate` 当次给的 `tools` 共同界定，本模块不改平台默认值。
 
 ## 依赖关系

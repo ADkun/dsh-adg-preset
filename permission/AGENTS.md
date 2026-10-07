@@ -59,6 +59,6 @@ cd permission && node --test --test-isolation=none test  # DSH 沙箱（workspac
 | 改了什么 | 怎么生效 | 怎么复核 |
 |---|---|---|
 | `permission/` 任何文件 | 重装子插件（`install.*` 第 2b / 4c / 4c-1 步：稳定副本 + `dsh plugin --profile <p> add`）+ **重启 dsh** + 新会话 | `cd permission && node --test test`；再在新会话里对任一**已经派出去**的子代理调一次（运行中期望 `applied=live`、已停下期望 `applied=persisted`、把权限改到超过自己那次期望被拒） |
-| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `doc-engineer` 技能的质量红线清单自检 |
+| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `adg-doc-criterion` 技能的质量红线清单自检 |
 
 **未观测**：本插件与 preset 在同一次 `install.*` 里装上时，两处装载是否总能对齐；量法：跑一次完整安装，核对第 4c-1 步的三格断言（`node_modules` 真目录 + `dependencies` + `dsh.profile.bundles`）与 `<profile>/node_modules/dsh-adg-preset` 的 `LinkType: Junction`。

@@ -98,6 +98,6 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1            # Windows
 | `notify/` 任何文件 | 重装子插件（`install.*`：稳定副本 + `dsh plugin --profile <p> add`）+ 重启 dsh + 新会话 | `cd notify && node --test test`，再在新会话里委派一次（委派时把 `notify_user` 给子代理）让它调一次 `notify_user` |
 | `permission/` 任何文件 | 同上口径：重装子插件（`install.*` 的同一批步骤也覆盖 `adg-permission`）+ 重启 dsh + 新会话 | `cd permission && node --test test`，再在新会话里对任一**已经派出去**的子代理调一次 `set_child_permission`（运行中期望 `applied=live`、已停下期望 `applied=persisted`；把权限改到超过自己的那次期望被拒） |
 | `delegate/` 任何文件 | 重装子插件（`install.*` 的 2b-2 / 4c-4 / 4c-5 步：稳定副本 + `dsh plugin --profile <p> add`）+ **重启 dsh** + 新会话 | `cd delegate && node --test test`；再在新会话里让调度者用一次 `delegate`（给一个 `tools` 清单与一段 persona），核对 `tools_note` 与子代理实际拿到的工具面 |
-| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `doc-engineer` 技能的质量红线清单自检 |
+| 本模块任何 `.md` 文档 | 立即生效（只是文件） | 按 `adg-doc-criterion` 技能的质量红线清单自检 |
 
 **已知限制**：dsh 正在运行时 `pnpm` 会因文件被占用而失败（`os error 32` / `ERR_PNPM_PACKAGE_MANAGER_REMOVE_MODULES_DIR`），脚本会如实报告并继续；包已在位时不算失败。要真正装/换依赖先关掉 dsh。
