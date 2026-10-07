@@ -9,11 +9,13 @@
   "exports": {
     ".": "./index.mjs",
     "./lib/toast.mjs": "./lib/toast.mjs",
+    "./lib/user-settings.mjs": "./lib/user-settings.mjs",
     "./package.json": "./package.json"
   },
   "files": [
     "index.mjs",
     "lib/toast.mjs",
+    "lib/user-settings.mjs",
     "scripts/toast.ps1",
     "cordis.patch.yml",
     "AGENTS.md",

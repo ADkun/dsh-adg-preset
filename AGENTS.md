@@ -107,6 +107,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | `notify/` | 仓库内部第一方子插件 **`adg-notify`**：注册工具 `notify_user`（参数 `message` 必填 / `title` 可选；Windows toast 提醒，**单向不阻塞** —— 只用它把状态告诉人，别用它等人回话） | `notify/AGENTS.md` |
 | `permission/` | 仓库内部第一方子插件 **`adg-permission`**：注册工具 `set_child_permission`（参数 `agent_id` / `mode` 必填），让调度者把一个**已经派出去**的子代理改到新的文件权限。只改 `sandbox/mode`、**不碰审批**（子代理的审批一律 `never`）；两条守卫在代码里 —— 目标必须是自己派出去的（`listDescendants`），且**不得超过调用方自己当前的模式** | `permission/AGENTS.md` |
 | `delegate/` | 仓库内部第一方子插件 **`adg-delegate`**：注册全局层工具 `delegate`（参数 `description` / `prompt` 必填，`tools` / `persona` / `background` 可选），**唯一的委派入口** —— 只有调度者拿得到；每次委派现给子代理目标与工具面（`tools` 省略＝继承调用方全部减内置 deny；点了未知名会被逐条剔除并记进返回的 `tools_note`），六个内置 deny 不可放宽 | `delegate/AGENTS.md` |
+| `settings/` | 仓库内部第一方子插件 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（浏览器半边 `client.js` + 宿主半边 `index.js` 的同源路由 `/api/adg-settings/settings` + 用户根设置文件 `<DSH_HOME>/adg-settings.json`）。**一套登记表驱动的框架** —— 加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 客户端 DICT 两条文案（zh/en），宿主与客户端逻辑都不用改；现存三项由 `adg-notify` 消费（通知默认标题 / 响提示音 / 通知常驻），**技术类键不许进页面** | `settings/AGENTS.md` |
 | `desktop/` | 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附 PowerShell 桥 `scripts/bridge.ps1`）：`profile` / `screen` / `windows` / `uia` / `point` / `invoke` / `verify` 与 `click` / `move` / `type` / `key` / `scroll`（SendInput 合成输入）。**Windows 专用**；注入类命令的成功判据是可观测差异，不是 `SendInput` 的返回值 | `desktop/AGENTS.md` |
 
 **新建模块的登记义务**：在 Project Map 加一行（唯一的登记点），并按「三信号」判断要不要给新模块建 `AGENTS.md`（有独立命令 / 有模块特有红线 / 需要跨模块路由，三者有其一方建）。
@@ -121,7 +122,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 |---|---|
 | `AGENTS.md`（本文件） | 根入口：路由（命令 / 红线 / 生效方式 / 模块地图 / 版本区 / 质量门） |
 | `README.md` | 人向总览：项目是什么、怎么装、怎么用、怎么排错 |
-| `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
+| `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/`、`settings/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
 | `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion`） | 六份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈 / 文档工程师角色规范（装到用户技能根） |
 | `docs-work/`（**临时工作目录，不在版本区**） | 过程件（changelog / handoff / pending / 工作稿 / 证据快照）；滚动更新、可被清理，任务交付前清空 |
 
@@ -134,7 +135,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 只是把它装到本机 | `README.md` 的「安装」→「给 AI 的安装指令」两节（后者是可直接粘给 AI 的完整步骤） |
 | 改这个仓库的某一块 | 本文件的「Project Map」定位模块 → 该模块的 `AGENTS.md` → 它的 `design.md`；改完按模块 `testing-guide.md` 与本文件的「Quality Gates」验 |
 | 刚接手、什么都还不知道 | 本文件（红线 + Project Map）→ `README.md`（项目是什么、装与用）→ 你要动的那一块的模块文档 |
-| 拿不准某条结论能不能当已成立的前提用 | 各模块文档里就地写明的 `**未观测**：…；量法：…` 条目（在 `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/` 各自的 `design.md` 与 `testing-guide.md` 里搜 `**未观测**：`）—— 未观测的前提不许当成已成立 |
+| 拿不准某条结论能不能当已成立的前提用 | 各模块文档里就地写明的 `**未观测**：…；量法：…` 条目（在 `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/`、`settings/` 各自的 `design.md` 与 `testing-guide.md` 里搜 `**未观测**：`）—— 未观测的前提不许当成已成立 |
 
 **诚实原则（现行规范）**：**未观测不许写成实测，也不许写成"不可观测"** —— 每条未观测结论必须写出量法与可复跑的判据，就地写成一行 `**未观测**：<问题>；量法：<怎么测>`。引用别人记载的实测必须写明来源，**不得写成自己验证过**；**文档只描述当前项目状态**：版本区文档不写变更叙述 —— 变更史由 git 提交历史承担；过程件的落点与清理口径只在本文件「版本区（文档目录入口）」一节定义一次，别处只指回它。若某条"未观测"的依据已被本机日志或脚本推翻，**处置权在人** —— 报出来，不要自己按旧口径照抄。
 
@@ -165,6 +166,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 改通知子插件（`notify_user` 的参数 / toast 实现 / 装载方式） | `notify/AGENTS.md` → `notify/design.md` | `notify/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` |
 | 改权限子插件（`set_child_permission` 的守卫 / 写入路径 / 装载方式） | `permission/AGENTS.md` → `permission/design.md` | `permission/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-1 / 4c-2 / 4c-3 步 |
 | 改 `delegate` 插件本身（工具名 / 参数 / 内置 deny 名单 / 装载方式） | `delegate/AGENTS.md` | `delegate/design.md` → `delegate/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-2 / 4c-4 / 4c-5 步 |
+| 改设置页框架 / 加一项配置项 / 改通知三项的键与界（`adg-settings`） | `settings/AGENTS.md` → `settings/design.md` | `settings/testing-guide.md`；键名与默认值的真相只在 `settings/lib/schema.mjs`，消费方（`adg-notify`）改契约时两边都要动；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-3 / 4c-6 / 4c-7 步 |
 | 改浏览器那一段委派口径（模式 / 登录态 / 权限闸门） | `preset/design.md` 的「核心数据模型」里 SchedulerPersona 一节（浏览器模式闸门的选择理由在 `preset/agent.cordis.yml` 调度 persona 的 `【浏览器：模式】` 段） | `browser/AGENTS.md`（它消费的命令行契约）→ 根 `README.md` 的「浏览器工具链与登录态资产」一节 → 改完 `node tools/check-preset.mjs` |
 | 只是想装到本机 | `README.md` 的「安装」一节 | `install.sh` / `install.ps1` |
 | 改文档 | `adg-doc-criterion` 技能 | 本文件的「版本区」一节 |
@@ -180,6 +182,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 通知子插件 | 机检：`cd notify && node --test test` | 全绿（零依赖，不弹窗） |
 | 权限子插件 | 机检：`cd permission && node --test test`（沙箱里加 `--test-isolation=none`）；改了守卫或写入路径再在**新会话**里对任一已派出的子代理真调一次 `set_child_permission` | 单元测试全绿；运行中那次 `applied=live`、已停下那次 `applied=persisted`、把权限改到超过调用方自己的那次被拒 |
 | 委派插件 | 机检：`cd delegate && node --test test`（沙箱里加 `--test-isolation=none`）；再在**新会话**里让调度者真用一次 `delegate` | 单元测试全绿；返回的 `tools` / `tools_note` 与子代理实际拿到的工具面一致（点名未知名要被逐条剔除并记进 `tools_note`，点 `run_code` 当场抛错） |
+| 设置页框架 | 机检：`cd settings && node --test test`（沙箱里加 `--test-isolation=none`）与 `cd notify && node --test test`（消费方契约在两边各钉一份，改任一侧都要两边都绿）；再在**重启后的 dsh** 里打开设置看「Adg 设置」页 | 两边单元测试全绿；页面能读当前生效值（含来源）/ 改一项保存 / 恢复默认，刷新后仍然生效 |
 | 桌面工具链 | 机检：`cd desktop && node --test test`（沙箱里加 `--test-isolation=none`）；改了注入路径再按 `desktop/testing-guide.md` 的「交付前的最小闭环」在**完全权限**会话里跑一次真机闭环 | 单元测试全绿；真机闭环每步的 `CHANGED=` / `CURSOR_LANDED=` 与期望一致（只用 `--dry-run` 证明不了注入） |
 | 文档合规 | 评/机检：按 `adg-doc-criterion` 技能的质量红线清单逐条自检；`AGENTS.md` 的 Project Map 与「版本区」表要覆盖本仓库全部模块与文档 | 逐条通过；行数在 `adg-doc-criterion` 技能给的预算内（量法：`node -e "const f=process.argv[1],s=require('fs').readFileSync(f,'utf8');console.log(s.split('\n').length-(s.endsWith('\n')?1:0))" <文件>`，当场读，读数不作锚） |
 | 文档里的引用真实存在 | 机检：先取出文档里全部反引号路径引用与链接目标，再逐条判存在（不要抽查几条） | 全存在。命令逐条敲一遍；被 `.gitignore` 排除的临时工作目录只许以反引号路径提及，不许做链接（落点与口径见「版本区（文档目录入口）」一节） |

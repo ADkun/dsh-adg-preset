@@ -51,7 +51,7 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 
 ## 消费方契约测试
 
-本模块有两个消费方，消费的**形状**不同 —— 改它们之前先看这一节。
+本模块有**三个**消费方，消费的**形状**不同 —— 改它们之前先看这一节：调度 persona 与每次委派的 `tools`（消费**工具名**）、`install.ps1` / `install.sh`（消费**目录名与包名**）、**设置页那份设置文件**（消费**通知三项的键名、默认值与界**）。
 
 ### 消费方（调度 persona 与每次委派的 `tools`）消费的是**工具名**
 
@@ -65,7 +65,23 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 - 包名 `adg-notify` 同时出现在：稳定副本的 `package.json`、profile 的 `dependencies`、profile 的 `dsh.profile.bundles`、安装脚本第 4c-1 步的断言里。改名要四处一起改。
 - **稳定副本与 profile 副本是硬链接（同一个文件）** ⇒ 刷新稳定副本（`Copy-Item` 就地覆盖，链接因此存活）就等于刷新所有 profile 副本，**不需要 `dsh plugin remove` + `add`**；而仓库源与稳定副本在不同盘、不可能硬链接 ⇒ 改了仓库里 `notify/` 的源码**必须重跑一次安装脚本**（第 2b 步输出里说明已是最新，就是没改）。判据（当场读数、不作锚）：`fsutil hardlink list <稳定副本>\package.json` 与对 profile 副本的同一条命令返回同一组路径，`fsutil file queryFileID` 两处返回同一个 ID。
 
-漂移检测（人工 review）：核对两个脚本的拷贝清单与 `notify/package.json` 的 `files` 字段。**两者故意不同**：脚本多拷 `notify/cli.mjs` 与 `notify/package.json` —— 前者是开发机上的自测入口，不需要被 pnpm 打进 profile 副本；后者是包清单，pnpm 总会拷。判据：profile 的 `node_modules/adg-notify/` 里**运行期三件套**（包内相对路径 `index.mjs` / `lib/toast.mjs` / `scripts/toast.ps1`）加 `cordis.patch.yml`、`package.json` 都在，且**没有** `cli.mjs`。`files` 里漏掉运行期文件才是缺陷。
+漂移检测（人工 review）：核对两个脚本的拷贝清单与 `notify/package.json` 的 `files` 字段。**两者故意不同**：脚本多拷 `notify/cli.mjs` 与 `notify/package.json` —— 前者是开发机上的自测入口，不需要被 pnpm 打进 profile 副本；后者是包清单，pnpm 总会拷。判据：profile 的 `node_modules/adg-notify/` 里**运行期四件套**（包内相对路径 `index.mjs` / `lib/toast.mjs` / `lib/user-settings.mjs` / `scripts/toast.ps1`）加 `cordis.patch.yml`、`package.json` 都在，且**没有** `cli.mjs`。`files` 里漏掉运行期文件才是缺陷 —— 漏一个就是"装载时 import 找不到模块"，整个 `notify_user` 会从工具面上消失（2026-10-08 真发生过一次：`lib/user-settings.mjs` 新加进 `index.mjs` 的 import 与 `files`，但安装脚本的拷贝清单漏了它，稳定副本与 profile 副本都没有这个文件）。
+
+**新增文件不会自己传播**：稳定副本 ↔ profile 副本是**逐文件**硬链接，pnpm 只在 `dsh plugin add` 时拷文件 ⇒ 往包里加一个新文件后，重新跑安装脚本的 2b 步只更新稳定副本，**已装好的 profile 副本仍然缺那个文件**。判据（机检）：`install.*` 尾部的「profile 副本缺文件」核对（对每个包、每个 profile 比对稳定副本的文件集合，跳过 `cli.mjs` 与 `node_modules/`），一条都不该打印；真打印了就先关掉 dsh、删掉那个 profile 副本目录再重跑（或 `dsh plugin --profile <n> add "file:<稳定副本>"`）。
+
+### 设置页那份设置文件（本模块 ← `settings/`）消费的是**三个键名、默认值与界**
+
+本模块的三项行为（`notifyTitle` / `notifySound` / `notifyPersist`）不是本模块定的：键名、默认值与界的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`（`consumer === 'adg-notify'` 那三条登记）。本模块**只读**那份文件 `${DSH_HOME:-~/.dsh}/adg-settings.json`（经 `notify/lib/user-settings.mjs` 的 `settingsFile()` / `readUserDefaults()` / `resolveRequest()`），**不 import `adg-settings` 包** —— 见 R13 与 `design.md` 的 I15。
+
+| 键 | 默认 | 消费点 |
+|---|---|---|
+| `notifyTitle` | `notify/lib/toast.mjs` 的 `DEFAULT_TITLE` | 某次调用没写 `title`（或写了空白）时用的标题 |
+| `notifySound` | `true` | 关掉时给 `sendToast` 写 `silent: true` |
+| `notifyPersist` | `true` | 关掉时写 `disappearAfterMs: 8000`（`AUTO_DISMISS_MS`） |
+
+载体 `notify/test/user-settings.test.mjs`（10 条）：①`USER_DEFAULTS` 三项等于出厂默认、冻结，`AUTO_DISMISS_MS === 8000` / `MAX_TITLE_LENGTH === 80` / `STORE_NAME`；②`settingsFile()` 与宿主同口径（`DSH_PROFILE_DIR` > `DSH_HOME`）；③出厂默认下 `resolveRequest({message})` **只有** `message` + `title` 两个字段；④-⑤这一次调用的 `title` / `silent` 压过设置页；⑥空白标题（`''` / `'   '` / 非字符串）算"没写"、回落；⑦`sound:false` 才写 `silent:true`、`persist:false` 才写 `disappearAfterMs`；⑧-⑩`readUserDefaults` 的宽容面（不存在 / 坏 JSON / 数组 / `null` / 缺项 / 坏项 / 字符串布尔 / 标题 80 收、81 不收）一条都不抛错。
+
+**漂移检测（机检）**：`cd notify && node --test test` 与 `cd settings && node --test test` **都要绿** —— 两份漂移用例各从一侧看同一组键，两边都钉住才拦得住"只改了一侧"。**生效口径**：改这三项的**值**保存即生效、不用重启（每次调用都重新读文件）；键名或本模块源码变了才要重装子插件 + 重启 dsh（见「生效方式」）。
 
 ## 验证 ≠ 装载
 

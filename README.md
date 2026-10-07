@@ -2,13 +2,14 @@
 
 一份 DSH 自建 agent preset：**一个调度智能体 + 它按需派出的通用子代理**。你把需求说给调度智能体，它判断范围后自己用 `delegate` 在**每一次委派时现定**：这一次子代理干什么、给哪些工具、什么边界、什么验收标准。子代理做完把结果交回来由它汇总。**一跳可达**：子代理不能再开子代理（`delegate` 的内置 deny 名单 + 平台深度默认 1），带与带之间的越界也由调度者续派。
 
-另外六件一起装的东西：
+另外七件一起装的东西：
 
 - **`delegate/`** —— 仓库内部第一方子插件 `adg-delegate`，在**全局层**注册工具 `delegate`，而且**只有调度智能体拿得到**：它让调度者对**每一次委派**现定 `description` / `prompt` / `tools`（工具名数组；缺省＝让它继承全部）/ 可选 `persona`（平台语义是**遮蔽**该子代理的部署 persona，不是追加）/ `background`（缺省 `true` ＝ continuable 可续跑）。六个内置 deny 名**永不进子代理的工具面**：`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`；`notify_user` **刻意可以**给子代理（单向提醒，让撞上登录墙的子代理自己喊人）。点名的未知名逐条写进返回的 `tools_note`；点名 `run_code` 当场抛错；
 - **`browser/`** —— 默认无头的 Chromium 系浏览器驱动（Chrome / Brave / Edge 探测）+ 最小 CDP 驱动，零第三方依赖，是**拿到浏览器工具链的那次委派**实际用的工具链；
 - **`desktop/`** —— 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附桥 `scripts/bridge.ps1`）：截屏 / 窗口与 UIA 枚举 / `SendInput` 合成输入 / 元素自带 UIA pattern 的语义操作 / 动作前后的可观测差异复核，是**拿到桌面工具链的那次委派**那条"真能点按钮"的路；**Windows 专用**，而且**要驱动普通用户窗口，调用它的那一次会话必须是完全权限** —— 受限会话的 Low 完整性级别会被 UIPI 拦下、且是**静默**丢事件，所以注入类命令只认可观测差异（`CHANGED=` / `CURSOR_LANDED=`）、不认 `SendInput` 的返回值；
 - **`notify/`** —— 仓库内部第一方子插件 `adg-notify`，注册工具 `notify_user`（Windows 桌面提醒，**单向不阻塞**；默认存活时间 **0 ＝ 常驻**，toast 走 `scenario="reminder"`，不再自己消失）；
 - **`permission/`** —— 仓库内部第一方子插件 `adg-permission`，注册工具 `set_child_permission`：让调度者把**在权限切换之前**派出去、还停在旧文件权限的子代理改到新权限（只有调度者能用；两条守卫 —— 只能改自己派出去的、且**不得超过调用方自己** —— 写在代码里，不是提示）；
+- **`settings/`** —— 仓库内部第一方子插件 `adg-settings`：在「设置」里注册一页 **Adg 设置**，把 `adg-notify` 的**三项行为**做成可配置项（**通知默认标题** / **响提示音** / **通知常驻**），改动写进 `${DSH_HOME:-~/.dsh}/adg-settings.json`，**保存后立即生效、不用重启**（没有这项设置时通知走出厂默认）。它同时是一套**登记表驱动的框架**：加一项配置只需在 `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记 + 在 `settings/client.js` 的 DICT 补两条文案（zh/en），宿主与客户端逻辑都不用改 —— 详见下方「设置页（Adg 设置）」一节；
 - **`skills/`** —— 六份技能，装到 `${DSH_HOME:-~/.dsh}/skills/`，按**渐进式披露**承载可复用经验（用法：调度者把技能文件的**绝对路径**写进委派 prompt，要子代理先 `read` 再动手）：
   - `adg-delegation` —— 给**调度智能体**看：能力带 → 建议工具面 / 建议 persona 要点 / 边界的映射表，以及怎么给 `tools` 与 `persona`、一跳可达、材料中转、验收判定；
   - `adg-browser-use` —— 给**拿到浏览器工具链的子代理**看：`cli.mjs` 用法、默认无头与换模式的不变量、登录墙人工协议、profile 是资产、标签页纪律、**必须完全权限**与三家浏览器的失败签名去哪看；
@@ -69,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File $HOME\dsh-adg-preset\install.ps1   # Wi
 | `notify/` | 稳定副本 + `dsh plugin --profile <p> add "file:<稳定副本>"` | **重启 dsh** + 新会话 |
 | `permission/` | 稳定副本 + `dsh plugin --profile <p> add "file:<稳定副本>"`（`install.*` 的 2b-1 / 4c-2 / 4c-3 步做的就是这个） | **重启 dsh** + 新会话 |
 | `delegate/` | 稳定副本 + `dsh plugin --profile <p> add "file:<稳定副本>"`（`install.*` 的 2b-2 / 4c-4 / 4c-5 步做的就是这个） | **重启 dsh** + 新会话 |
+| `settings/` | 稳定副本（`plugins/adg-settings/`，8 个文件）+ `dsh plugin --profile <p> add "file:<稳定副本>"`（`install.*` 的 2b-3 / 4c-6 / 4c-7 步做的就是这个） | **重启 dsh** 后设置里才出现「Adg 设置」那一页；**页面里的改动保存即生效，不用重启** |
 
 ## 味道：一份源文件，四种生成物
 
@@ -225,6 +227,20 @@ node tools/check-preset.mjs
 
 通过（exit 0）即可。动了哪个模块就再跑那个模块的测试：`cd delegate && node --test test`、`cd browser && node --test test`、`cd desktop && node --test test`、`cd notify && node --test test`、`cd permission && node --test test`（DSH 沙箱里一律加 `--test-isolation=none`）。自检还会核对承载体积旋钮的那三行是否完好（行在、包名对、没被关掉、`config:` 里没有插件不认识的键）；本 preset 刻意不覆盖任何旋钮，所以它打印出来的是插件出厂默认值。
 
+## 设置页（Adg 设置）
+
+装好 `settings/` 子插件并**重启 dsh** 之后，设置左栏会出现一页 **Adg 设置**（它只承载本仓库第一方子插件的行为开关）。当前它承载 `adg-notify` 的**三项行为**：
+
+| 配置项 | 默认 | 改掉 / 关掉之后 |
+|---|---|---|
+| 通知默认标题 | `DSH 通知` | 换成你认得出的标题；某一次 `notify_user` 自己带了 `title` 时按那次的来 |
+| 响提示音 | 开 | 关掉之后静音弹出（那一次调用显式传 `silent` 也照旧） |
+| 通知常驻 | 开 | 关掉之后通知 **8 秒**后从通知中心消失；开着＝常驻，直到你处理 |
+
+**存在哪**：`${DSH_HOME:-~/.dsh}/adg-settings.json`（原子写；删掉它就回到出厂默认）。页面「当前生效」区逐项标出**这个值从哪来** —— 设置文件 / 插件 Config（行 `config:` 兜底）/ 内置默认，三层优先。**保存即生效、不用重启**：消费方每次调用都重新读那份文件。
+
+**它同时是一套框架**：加一项配置 = 在 `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记（`key` / `kind` / `default` / 界 / `group` / `labelKey` / `hintKey` / `consumer`）+ 在 `settings/client.js` 的 `DICT` 补 zh / en 两条文案 —— 宿主半边、页面组件、路由与校验都不用动（客户端从 `fields[]` 拿界，不自己定义界）。**新配置项必须先问用户**：只有用户点名要的项才进 `FIELDS`；`adg-notify` 的 `appId` / `timeoutMs` / `scriptPath` / `powerShellPath` 这类**技术类键刻意不进页面**（本机路径或排错旋钮，暴露出来只会让人改坏）。要给某一项接上真正的消费方，先读 `settings/AGENTS.md` 与 `settings/design.md` 的「加一项配置的 5 步」。
+
 ## 故障排查
 
 | 症状 | 先看这里 |
@@ -242,11 +258,14 @@ node tools/check-preset.mjs
 | 手改源文件后在名单里写了个没注册的工具名 | `dsh-tools` 的 `restrict()` 遇到未知名直接抛 `names unknown global tool …`，那一次委派当场失败；回 `node tools/check-preset.mjs` 看它报哪一行（经 `delegate` 的 `tools` 点名的未知名不会走到这里，它们被逐条写进 `tools_note`） |
 | 装的时候 `pnpm` 报文件被占用 | dsh 正在运行。要真正装/换依赖先关掉 dsh；脚本会如实报告并继续 |
 | `install.ps1` 在 Windows PowerShell 5.1 上直接解析失败 | 检查文件前三个字节是否仍是 `EF BB BF`：这个脚本**必须保留 UTF-8 BOM**，没有 BOM 时 5.1 会按系统 ANSI 代码页读它、中文变乱码 |
+| 设置里没有「Adg 设置」这一页 | 那个 profile 没装 `adg-settings` 子插件，或者装完没重启 dsh（插件是挂载期注册的）。重跑 `install.*`，读回时确认 `adg-settings` 三格齐（`node_modules` 真目录 + `dependencies` + `dsh.profile.bundles`）；重启后它出现在设置左栏 |
+| 在设置页里改了通知三项，通知没变 | 三处按顺序看：①页面上「当前生效」区每项的来源是「设置文件 / 插件 Config / 内置默认」—— 写盘成功后再看它是否变成「设置文件」；②消费方是 `adg-notify`，它在**下一次 `notify_user` 调用**时才读 `<DSH_HOME>/adg-settings.json`（不用重启，但也不会回头改已经弹出来的那条）；③那一次调用自己带了 `title` / `silent` 参数就会压过设置页 |
+| 设置页一直显示「加载失败」 | 宿主半边没挂上：先确认那个 profile 的 `adg-settings` 三格齐、且重启过 dsh（`/api/adg-settings/settings` 是同源路由，另一个 profile 装没装不影响这一个） |
 | 想知道某个结论"量过没有" | 先看本文末尾的「未观测」一节与各模块的 `**未观测**：` 条目；都没有的就是还没量过，别当成实测 |
 
 ## 许可
 
-`preset` 的包清单（`preset/bundle.package.json`）与 `notify/`、`permission/`、`delegate/` 的包清单都声明 **MIT**。仓库里没有单独的 `LICENSE` 文件；以包清单里的字段为准。
+`preset` 的包清单（`preset/bundle.package.json`）与 `notify/`、`permission/`、`delegate/`、`settings/` 的包清单都声明 **MIT**。仓库里没有单独的 `LICENSE` 文件；以包清单里的字段为准。
 
 ## 未观测
 
@@ -264,7 +283,8 @@ node tools/check-preset.mjs
 6. **装 `notify/` 子插件**：把 `notify/` 拷到一个稳定副本，然后 `dsh plugin --profile <p> add "file:<稳定副本>"`，并读回该 profile 的清单确认它真的在（`install.*` 的第 2b / 4c / 4c-1 步做的就是这个）。
 7. **装 `permission/` 子插件**：同样拷一个稳定副本 + `dsh plugin --profile <p> add "file:<稳定副本>"` + 读回该 profile 的清单确认三格齐（`install.*` 的第 2b-1 / 4c-2 / 4c-3 步做的就是这个）。它**不会**出现在任何子代理的工具面里（`set_child_permission` 在内置 deny 名单上）—— 只有调度智能体用。
 8. **装 `delegate/` 子插件**：同样拷一个稳定副本 + `dsh plugin --profile <p> add "file:<稳定副本>"` + 读回该 profile 的清单确认三格齐（`install.*` 的第 2b-2 / 4c-4 / 4c-5 步做的就是这个）。它是**唯一的委派入口**：只装 preset bundle 而漏装它，调度者手上没有任何能开子代理的工具；它也**不会**出现在任何子代理的工具面里。
-9. **拷两个本机操作工具链**：`<tempdir>/browser/` → `${DSH_HOME:-~/.dsh}/browser/`、`<tempdir>/desktop/` → `${DSH_HOME:-~/.dsh}/desktop/`（`install.*` 的第 2 / 2c 步做的就是这个：**先删后拷整个目录**）。两者都是用户根下的普通文件，重跑安装脚本即生效、**不用重启**；但 `desktop/` 还有前提 —— 要真正驱动普通用户窗口，**调用它的那一次会话必须是完全权限**，否则 UIPI 会静默拦下合成输入。
-10. **校验（只有真实挂载算证据）**：挂一个注入 `agentPresets` 的临时插件，按「真实挂载验证」一节那三条判据核 —— `.broken` 必须为空、`list()` 里能看到 `adg`、`compositionInventory()` 里**恰好一条**启用委派行（`agent`）且没有 `tool-subagent-fork` 行（它报的是**模块名**：`@deepseek-ai/dsh-tool-subagent` 出现 3 次＝1 条启用 + 两条 `disabled: true`，按"出现次数 = 委派行数"断言会误报失败）。也可以直接 `node <tempdir>/tools/check-preset.mjs`（exit 0 表示通过），但它只是**文本扫描器**，上面那条真实挂载的校验不能省。
-11. 明确告诉用户：**preset 改动与三个子插件（`notify/` / `permission/` / `delegate/`）都按"重启 dsh + 新会话"验收**（已挂载的会话不会中途换组合）。重启后在新建对话里选择「Adg 多智能体模式」。
-12. 明确告诉用户：可复用的能力/经验都做成 `skills/<名字>/SKILL.md`，装到 `${DSH_HOME:-~/.dsh}/skills/` 后**热加载、立即生效、不用重启**；要让某次委派用上某份技能，就把它的**绝对路径**写进委派 prompt、要子代理先 `read`。
+9. **装 `settings/` 子插件**：同样拷一个稳定副本（8 个文件：`index.js` / `client.js` / `lib/schema.mjs` / `cordis.patch.yml` / `package.json` / `AGENTS.md` / `design.md` / `testing-guide.md`）+ `dsh plugin --profile <p> add "file:<稳定副本>"` + 读回该 profile 的清单确认三格齐（`install.*` 的第 2b-3 / 4c-6 / 4c-7 步做的就是这个）。它注册的是「设置」里那一页 **Adg 设置**；没装它只是少一页设置，通知仍走出厂默认。
+10. **拷两个本机操作工具链**：`<tempdir>/browser/` → `${DSH_HOME:-~/.dsh}/browser/`、`<tempdir>/desktop/` → `${DSH_HOME:-~/.dsh}/desktop/`（`install.*` 的第 2 / 2c 步做的就是这个：**先删后拷整个目录**）。两者都是用户根下的普通文件，重跑安装脚本即生效、**不用重启**；但 `desktop/` 还有前提 —— 要真正驱动普通用户窗口，**调用它的那一次会话必须是完全权限**，否则 UIPI 会静默拦下合成输入。
+11. **校验（只有真实挂载算证据）**：挂一个注入 `agentPresets` 的临时插件，按「真实挂载验证」一节那三条判据核 —— `.broken` 必须为空、`list()` 里能看到 `adg`、`compositionInventory()` 里**恰好一条**启用委派行（`agent`）且没有 `tool-subagent-fork` 行（它报的是**模块名**：`@deepseek-ai/dsh-tool-subagent` 出现 3 次＝1 条启用 + 两条 `disabled: true`，按"出现次数 = 委派行数"断言会误报失败）。也可以直接 `node <tempdir>/tools/check-preset.mjs`（exit 0 表示通过），但它只是**文本扫描器**，上面那条真实挂载的校验不能省。
+12. 明确告诉用户：**preset 改动与四个子插件（`notify/` / `permission/` / `delegate/` / `settings/`）都按"重启 dsh + 新会话"验收**（已挂载的会话不会中途换组合）。重启后在新建对话里选择「Adg 多智能体模式」。
+13. 明确告诉用户：可复用的能力/经验都做成 `skills/<名字>/SKILL.md`，装到 `${DSH_HOME:-~/.dsh}/skills/` 后**热加载、立即生效、不用重启**；要让某次委派用上某份技能，就把它的**绝对路径**写进委派 prompt、要子代理先 `read`。

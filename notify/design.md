@@ -69,6 +69,12 @@ last_reviewed: 2026-10-04
 - **I13** `output` 必须是 `{ schema, render }` 且 `render` 是函数，否则抛 `TypeError: tool "<name>" must declare output { schema, render, presentationMeta? }`；`run_code` 是保留名。载体：D2 用例。
 - **I14** **作者侧的 schema 方言是"隐式属性映射"，不是对象根 JSON Schema。** `parameters` 写成 `{ message: { type:'string', required:true, description }, title: {…}, silent: {…} }` —— **key 就是属性名**，必填由属性上的 `required: true` 表达；写成 `{ type:'object', properties:{…} }` 会被当场判死：`JsonSchemaError: unsupported JSON schema: parameters.type must be a value schema object`，顶层 `additionalProperties` 同样被拒。`output.schema` **反过来**要对象根形状 `{ type:'object', additionalProperties:<显式布尔>, properties:{…} }`（缺那个显式布尔会被拒）。理由：这个抛错发生在 `apply()` 注册的那一刻，也就是说形状写错＝**插件一挂载就崩**，而它不会在任何"只跑 stub"的自测里暴露。载体：D2 的三条用例，其中一条是**反向对照**（把错形状喂给真 `defineTool` 并断言它抛错，否则"不抛错"那条可能只是在空转）；纪律是造定义必须用**真的** `defineTool`（`createNotifyUserTool()` 因此支持注入 `defineTool`）。
 
+### 用户可配的三项行为（本模块 ← 设置页）
+
+`adg-notify` 的三项**行为**由「设置」里那一页 **Adg 设置**（`settings/` 模块，包名 `adg-settings`）配置：**通知默认标题** / **响提示音** / **通知常驻**。键名与默认值的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`；本模块**只读**那份设置文件（`${DSH_HOME:-~/.dsh}/adg-settings.json`），**不 import `adg-settings` 包、不自己定义第二份界**。为此新增 `notify/lib/user-settings.mjs`：导出 `STORE_NAME` / `MAX_TITLE_LENGTH`（80）/ `AUTO_DISMISS_MS`（8000）/ `USER_DEFAULTS` / `settingsFile()` / `readUserDefaults(file?)` / `resolveRequest(args, defaults)`；`notify/index.mjs` 的 `createNotifyUserTool(deps)` 因此多一个 `deps.defaults`（缺省 `() => USER_DEFAULTS`，生产路径传 `() => readUserDefaults()`）。
+
+- **I15** 一次投递的三项按 **本次调用 > 设置文件 > 出厂默认** 解析：`args.title` 非空白就压过设置页的默认标题，空 / 全空白回落；`sound === false` 才写 `silent: true`（缺省出声）；`persist === false` 才写 `disappearAfterMs = 8000`（缺省常驻 —— 即 `0` / `scenario="reminder"` 的既有形态）。读设置文件**宽容**：文件不存在 / 坏 JSON / 数组 / 缺项 / 类型不对都只影响那一项，**一律不抛**。理由：通知是"该你动手了"的最后一环，一份被用户手改坏的配置文件绝不能让这次通知整体失败。载体：`notify/test/user-settings.test.mjs`（`cd notify && node --test test`）—— 其中一条是**跨模块漂移用例**：`USER_DEFAULTS` 三项必须与 `settings/lib/schema.mjs` 里 `consumer === 'adg-notify'` 的登记项逐项相等。
+
 ## 对外接口
 
 - 工具：`notify_user` —— 参数 `message`（string，**必填**）/ `title`（string，可选）/ `silent`（boolean，可选）；`isConcurrencySafe: () => true`；`timeoutMs: 15000`；`output` 形状见 I13。description 写的是**触发面**：必须由人在本机完成的阻塞点（登录墙 / 验证码 / 二次验证 / 设备确认，或需要用户拍板、出示凭据、在本机操作某个窗口）；正文要写清「卡在哪 / 用户具体要做什么 / 完成后回来告诉我什么」，并明写"这是单向通知，不会阻塞、也不会等待用户回话：调用后立刻返回，用户是否看到不影响本步继续"，以及"用户不在电脑前时通知可能没被看到 —— 不要把它当成『已获得用户确认』，也不要用它代替 `send_message`"。

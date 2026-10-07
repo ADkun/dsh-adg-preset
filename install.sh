@@ -320,10 +320,12 @@ if [ ! -f "$notify_src/package.json" ]; then
   notify_note="未找到 $notify_src，跳过 notify/ 插件部署"
   notify_skipped=1
 else
-  # 这里的清单与 notify/package.json 的 `files` 字段**故意不同**：本清单比它多 `cli.mjs`（仓库内自测 / 手工发通知用）与 `package.json`（稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。`files` 那 7 条是给 npm pack 用的，所以各 profile 里那份副本是 8 个文件、没有 `cli.mjs` 是预期。差异是刻意的，见 notify/testing-guide.md 的漂移检测一节。
+  # 这里的清单与 notify/package.json 的 `files` 字段**故意不同**：本清单比它多 `cli.mjs`（仓库内自测 / 手工发通知用）与 `package.json`（稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。`files` 那 8 条是给 npm pack 用的，所以各 profile 里那份副本是 9 个文件、没有 `cli.mjs` 是预期。差异是刻意的，见 notify/testing-guide.md 的漂移检测一节。
+  # 注意：稳定副本 ↔ profile 副本是**逐文件**硬链接，往这里加一个新文件（比如 lib/user-settings.mjs）
+  # **不会**自己传播到已经装好的 profile —— pnpm 只在 `add` 时拷文件。脚本尾部的核对会把这种情况报出来。
   mkdir -p "$notify_dest/lib" "$notify_dest/scripts"
   notify_copied=0
-  for notify_rel in index.mjs cli.mjs lib/toast.mjs scripts/toast.ps1 cordis.patch.yml \
+  for notify_rel in index.mjs cli.mjs lib/toast.mjs lib/user-settings.mjs scripts/toast.ps1 cordis.patch.yml \
     package.json AGENTS.md design.md testing-guide.md; do
     if [ ! -f "$notify_src/$notify_rel" ]; then
       notify_note="notify/ 部署不完整：源里缺 $notify_rel"
@@ -423,6 +425,48 @@ else
       delegate_note="delegate/ 插件 -> $delegate_dest（本次更新 $delegate_copied 个文件）"
     else
       delegate_note="delegate/ 插件 -> $delegate_dest（已是最新，无需拷贝）"
+    fi
+  fi
+fi
+
+# ── 2b-3. settings/ 插件（设置页「Adg 设置」）──────────────────────────────────
+# 与 2b / 2b-1 / 2b-2 同形（普通插件包、file: 依赖、用户根下的稳定副本）。这是唯一带前端的
+# 一枚：宿主半边 index.js 注册同源路由 /api/adg-settings，客户端半边 client.js 往
+# settings.section 挂一页（order 38），两半由同一份登记表 lib/schema.mjs 驱动。
+# 漏装的症状是"设置页里少一页"，而不是委派报错；它也**不影响 notify 的默认值**：adg-notify
+# 只按文件契约读 adg-settings.json，文件不在就回落到出厂默认。同样必须重启 dsh 才注册。
+settings_src="$here/settings"
+settings_dest="$root/plugins/adg-settings"
+settings_note=""
+settings_skipped=0
+# 4c-7 的断言要用它；在这里初始化，免得 set -u 下某个分支没赋值就展开而整个脚本退出。
+settings_in_profile=""
+if [ ! -f "$settings_src/package.json" ]; then
+  settings_note="未找到 $settings_src，跳过 settings/ 插件部署"
+  settings_skipped=1
+else
+  # 本清单与 settings/package.json 的 `files` 字段**故意不同**：多一个 `package.json`
+  # （稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。
+  mkdir -p "$settings_dest/lib"
+  settings_copied=0
+  for settings_rel in index.js client.js lib/schema.mjs cordis.patch.yml \
+    package.json AGENTS.md design.md testing-guide.md; do
+    if [ ! -f "$settings_src/$settings_rel" ]; then
+      settings_note="settings/ 部署不完整：源里缺 $settings_rel"
+      settings_skipped=1
+      break
+    fi
+    if [ -f "$settings_dest/$settings_rel" ] && cmp -s "$settings_src/$settings_rel" "$settings_dest/$settings_rel"; then
+      continue
+    fi
+    cp "$settings_src/$settings_rel" "$settings_dest/$settings_rel"
+    settings_copied=$((settings_copied + 1))
+  done
+  if [ "$settings_skipped" -eq 0 ]; then
+    if [ "$settings_copied" -gt 0 ]; then
+      settings_note="settings/ 插件 -> $settings_dest（本次更新 $settings_copied 个文件）"
+    else
+      settings_note="settings/ 插件 -> $settings_dest（已是最新，无需拷贝）"
     fi
   fi
 fi
@@ -683,6 +727,45 @@ for name in $profiles; do
         done
   fi
 
+  # 4c-6. adg-settings 插件（设置页框架）也装进这个 profile。同 4c / 4c-2 / 4c-4 形。
+  # 漏装的后果最轻：只是设置里少一页「Adg 设置」—— 通知三项读不到设置文件就回落内置默认。
+  if [ "$settings_skipped" -eq 1 ]; then
+    echo "  profile -> $name : adg-settings 未部署（$settings_note）—— 设置里不会出现「Adg 设置」那一页" >&2
+  else
+    settings_in_profile="$profile_dir/node_modules/adg-settings/package.json"
+    if [ -f "$settings_in_profile" ]; then
+      echo "  profile -> $name : adg-settings 已经在 node_modules 里"
+    elif ! command -v dsh >/dev/null 2>&1; then
+      echo "  profile -> $name : 未找到 dsh 命令，跳过 adg-settings 安装 —— 请在该 profile 里执行 dsh plugin --profile $name add file:$settings_dest" >&2
+    elif (cd "$profile_dir" && dsh plugin --profile "$name" add "file:$settings_dest"); then
+      echo "  profile -> $name : 已装 adg-settings"
+    else
+      echo "  profile -> $name : adg-settings 没装进 $profile_dir（dsh plugin add 失败）—— 关掉 dsh 后重跑本脚本" >&2
+    fi
+  fi
+
+  # 4c-7. 读回来断言 adg-settings 的三格（同 4c-1 / 4c-3 / 4c-5 的口径与理由）。
+  if [ "$settings_skipped" -eq 0 ]; then
+    node -e '
+      const fs = require("fs");
+      const [manifest, pkgJson, pkgName] = process.argv.slice(1);
+      let name = "";
+      try { name = JSON.parse(fs.readFileSync(pkgJson, "utf8")).name; } catch { name = ""; }
+      const j = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      const depLine = Boolean(j.dependencies && j.dependencies[pkgName]);
+      const listed = Boolean(j.dsh && j.dsh.profile && (j.dsh.profile.bundles || []).includes(pkgName));
+      if (name === pkgName && depLine && listed) {
+        console.log("三格齐（node_modules 真目录 + dependencies + dsh.profile.bundles）");
+      } else if (name === pkgName) {
+        console.log("包在位，但 manifest 缺一格（dependencies=" + depLine + " / dsh.profile.bundles=" + listed + "）—— 手工补上再重启");
+      } else {
+        console.log("包不在 node_modules 里（或 package.json 读不出名字）");
+      }' "$manifest" "$settings_in_profile" adg-settings \
+      | while IFS= read -r settings_verdict; do
+          echo "  profile -> $name : adg-settings $settings_verdict"
+        done
+  fi
+
   node -e '
     const fs = require("fs");
     const [manifest, bundleName] = process.argv.slice(1);
@@ -714,11 +797,42 @@ for gen_flavor in $gen_flavors; do
   esac
   echo "  bundle  -> $gen_dest（$gen_flavor 味道：$gen_note；生成物来自 preset/preset.yml + preset/agent.cordis.yml）"
 done
+# ── 稳定副本 ↔ profile 副本：逐文件核一遍，别让"新加的文件没传播"静默发生 ─────────────
+# 两个副本是**逐文件**硬链接，pnpm 只在 `dsh plugin add` 时拷文件 ⇒ 往某个包里加一个新文件后，
+# 重跑本脚本只更新稳定副本，已经装好的 profile 副本仍然缺那个文件 —— 表现是装载时 import 找不到
+# 模块（工具整条消失 / 设置页不出现），而且没有任何提示（2026-10-08 真发生过一次）。
+node -e '
+const fs = require("fs"), path = require("path");
+const [root, ...pairs] = process.argv.slice(1);
+for (const pair of pairs) {
+  const i = pair.indexOf("=");
+  const pkg = pair.slice(0, i), dest = pair.slice(i + 1);
+  if (!fs.existsSync(dest)) continue;
+  const expected = [];
+  const walk = (dir, rel) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const r = rel ? rel + "/" + e.name : e.name;
+      if (e.isDirectory()) { if (r !== "node_modules") walk(path.join(dir, e.name), r); }
+      else if (r !== "cli.mjs") expected.push(r);
+    }
+  };
+  walk(dest, "");
+  const profilesDir = path.join(root, "profiles");
+  if (!fs.existsSync(profilesDir)) continue;
+  for (const name of fs.readdirSync(profilesDir)) {
+    const copy = path.join(profilesDir, name, "node_modules", pkg);
+    if (!fs.existsSync(copy)) continue;
+    const missing = expected.filter(r => !fs.existsSync(path.join(copy, r)));
+    if (missing.length) console.log("  profile -> " + name + " : " + pkg + " 的 profile 副本缺 " + missing.length + " 个文件（" + missing[0] + "…）—— 关掉 dsh 后重跑本脚本，或 dsh plugin --profile " + name + " add \"file:" + dest + "\"");
+  }
+}' "$root" "adg-notify=$notify_dest" "adg-permission=$permission_dest" "adg-delegate=$delegate_dest" "adg-settings=$settings_dest"
+
 echo "  browser -> $browser_note"
 echo "  desktop -> $desktop_note"
 echo "  notify  -> $notify_note（notify_user 工具；每个 profile 的安装结果见上面 profile 行）"
 echo "  delegate -> $delegate_note（delegate 工具 —— 唯一的委派入口；只有调度智能体拿得到，子代理拿不到）"
 echo "  permission -> $permission_note（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
+echo "  settings -> $settings_note（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
 echo ""
 echo "下一步：重启 dsh，然后在新建对话里选择「Adg 多智能体模式」。"
 echo "（preset 走的是一条独立的 patch 层：dsh --profile <name> --dump-config 能确认它被读到，"
@@ -728,6 +842,7 @@ echo "  desktop 是 Windows 专用，自检：node \"$desktop_dest/cli.mjs\" pro
 echo "（adg-notify 插件：装了之后必须重启 dsh 才注册 —— loader 会按解析路径缓存 ES 模块。）"
 echo "（adg-delegate 插件：同样要重启 dsh 才注册；它是**唯一的委派入口** —— 没装它调度者手上就没有开子代理的工具。）"
 echo "（adg-permission 插件：同样要重启 dsh 才注册；它不进任何一次委派的 tools —— 只有调度智能体用。）"
+echo "（adg-settings 插件：同样要重启 dsh 才注册 —— 重启后设置里才会出现「Adg 设置」；没装它只是少一页设置，通知的出厂默认照旧。）"
 if [ "$package_failed" -eq 1 ]; then
   echo ""
   echo "注意：至少有一步 pnpm 没成功，$bundle_name 可能还没装进 profile（上面的 profile 行里写明了）。" >&2

@@ -258,8 +258,11 @@ if (Test-Path -LiteralPath $desktopSrc) {
 $notifySrc = Join-Path $here 'notify'
 $notifyDest = Join-Path $root 'plugins\adg-notify'
 $notifyManifest = Join-Path $notifyDest 'package.json'
-# 这里的拷贝清单与 notify\package.json 的 `files` 字段**故意不同**：本清单比它多 `cli.mjs`（仓库内自测 / 手工发通知用）与 `package.json`（稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。`files` 那 7 条是给 npm pack 用的，所以 profiles 里那份副本是 8 个文件、没有 `cli.mjs` 是预期。差异是刻意的，见 notify\testing-guide.md 的漂移检测一节。
-$notifyFiles = @('index.mjs', 'cli.mjs', 'lib\toast.mjs', 'scripts\toast.ps1', 'cordis.patch.yml',
+# 这里的拷贝清单与 notify\package.json 的 `files` 字段**故意不同**：本清单比它多 `cli.mjs`（仓库内自测 / 手工发通知用）与 `package.json`（稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。`files` 那 8 条是给 npm pack 用的，所以 profiles 里那份副本是 9 个文件、没有 `cli.mjs` 是预期。差异是刻意的，见 notify\testing-guide.md 的漂移检测一节。
+# 注意：稳定副本 ↔ profile 副本是**逐文件**硬链接，所以往这里加一个新文件（比如 lib\user-settings.mjs）
+# **不会**自己传播到已经装好的 profile —— pnpm 只在 `add` 时拷文件。加了新文件就要重跑本脚本
+# （脚本尾部的「profile 副本缺文件」核对会把这种情况报出来）。
+$notifyFiles = @('index.mjs', 'cli.mjs', 'lib\toast.mjs', 'lib\user-settings.mjs', 'scripts\toast.ps1', 'cordis.patch.yml',
   'package.json', 'AGENTS.md', 'design.md', 'testing-guide.md')
 $notifyNote = ''
 $notifySkipped = $false
@@ -391,6 +394,54 @@ if ($SkipPackages) {
     $delegateNote = "delegate/ 插件 -> $delegateDest（本次更新 $delegateCopied 个文件）"
   } else {
     $delegateNote = "delegate/ 插件 -> $delegateDest（已是最新，无需拷贝）"
+  }
+}
+
+# ── 2b-3. settings/ 插件（设置页「Adg 设置」）─────────────────────────────────
+# 与前三段同形（普通插件包、file: 依赖、用户根下的稳定副本）。这是**唯一带前端的那枚**：
+# 宿主半边 index.js 注册同源路由 /api/adg-settings，客户端半边 client.js 往 settings.section
+# 上挂一页（order 38），两半由同一份登记表 lib/schema.mjs 驱动 —— 加一项配置只需要动登记表
+# 与客户端的文案，不动这一半的逻辑。
+# 漏装的症状是"设置页里少一页"，而不是某次委派报 names unknown global tool；
+# 它也**不影响 notify 的默认值**：adg-notify 只按文件契约读 adg-settings.json，文件不存在时
+# 回落到出厂默认（见 notify/lib/user-settings.mjs 的文件头）。
+$settingsSrc = Join-Path $here 'settings'
+$settingsDest = Join-Path $root 'plugins\adg-settings'
+$settingsNote = ''
+$settingsSkipped = $false
+# 4c-7 的断言要用它；在这里初始化，免得某个分支没赋值就被读。
+$settingsInProfile = ''
+if ($SkipPackages) {
+  $settingsNote = '跳过（-SkipPackages）'
+  $settingsSkipped = $true
+} elseif (-not (Test-Path -LiteralPath (Join-Path $settingsSrc 'package.json'))) {
+  $settingsNote = "未找到 $settingsSrc，跳过 settings/ 插件部署"
+  $settingsSkipped = $true
+} else {
+  # 本清单与 settings/package.json 的 `files` 字段**故意不同**：多一个 `package.json`
+  # （稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。目录结构是 index.js + client.js +
+  # lib/schema.mjs（有子目录，所以要先建出 lib\）。
+  New-Item -ItemType Directory -Force -Path (Join-Path $settingsDest 'lib') | Out-Null
+  $settingsFiles = @('index.js', 'client.js', 'lib\schema.mjs', 'cordis.patch.yml',
+    'package.json', 'AGENTS.md', 'design.md', 'testing-guide.md')
+  $settingsCopied = 0
+  $settingsMissing = @()
+  foreach ($rel in $settingsFiles) {
+    $from = Join-Path $settingsSrc $rel
+    if (-not (Test-Path -LiteralPath $from)) { $settingsMissing += $rel; continue }
+    $to = Join-Path $settingsDest $rel
+    $same = (Test-Path -LiteralPath $to) -and ((Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash)
+    if ($same) { continue }
+    Copy-Item -Force -LiteralPath $from -Destination $to
+    $settingsCopied += 1
+  }
+  if ($settingsMissing.Count -gt 0) {
+    $settingsNote = "settings/ 部署不完整：源里缺 $($settingsMissing -join ', ')"
+    $settingsSkipped = $true
+  } elseif ($settingsCopied -gt 0) {
+    $settingsNote = "settings/ 插件 -> $settingsDest（本次更新 $settingsCopied 个文件）"
+  } else {
+    $settingsNote = "settings/ 插件 -> $settingsDest（已是最新，无需拷贝）"
   }
 }
 
@@ -709,6 +760,81 @@ foreach ($name in $Profiles) {
       $installNotes += "$name : adg-delegate 包在位，但 manifest 缺一格（dependencies=$delegateDepLine / dsh.profile.bundles=$delegateListedLine）—— 手工补上再重启"
     }
   }
+
+  # 4c-6. adg-settings 插件（设置页框架）也装进这个 profile。
+  # 与 4c / 4c-2 / 4c-4 同形（file: 依赖 + reconcile）。漏装的后果最轻 —— 只是设置里少一页
+  # 「Adg 设置」：通知三项读不到设置文件就回落内置默认，委派、权限都不受影响。但仍要如实报告，
+  # 因为少了它，那三项就没法在界面上改。
+  if ($settingsSkipped) {
+    $installNotes += "$name : adg-settings 未部署（$settingsNote）—— 设置里不会出现「Adg 设置」那一页"
+  } else {
+    $settingsInProfile = Join-Path $profileDir "node_modules\adg-settings\package.json"
+    $settingsNeedInstall = -not (Test-Path -LiteralPath $settingsInProfile)
+    if (-not $settingsNeedInstall) {
+      $installNotes += "$name : adg-settings 已经在 node_modules 里"
+    } elseif (-not $dshCmd) {
+      $installNotes += "$name : 未找到 dsh 命令，跳过 adg-settings 安装 —— 请在该 profile 里执行 dsh plugin --profile $name add `"file:$settingsDest`""
+    } else {
+      Push-Location $profileDir
+      try {
+        # 同 4a / 4c / 4c-2 / 4c-4：走 cmd /c 收流，否则 PS 5.1 下 pnpm 的 stderr 会变成终止错误。
+        $settingsLog = Join-Path $profileDir 'pnpm-adg-settings.log'
+        cmd /c "dsh plugin --profile $name add `"file:$settingsDest`" > `"$settingsLog`" 2>&1"
+        $settingsExit = $LASTEXITCODE
+      } finally { Pop-Location }
+      if (Test-Path -LiteralPath $settingsInProfile) {
+        Remove-Item -LiteralPath $settingsLog -Force -ErrorAction SilentlyContinue
+        $installNotes += "$name : 已装 adg-settings（dsh plugin add exit $settingsExit）"
+      } else {
+        $installNotes += "$name : adg-settings 没装进 $profileDir（dsh plugin add exit $settingsExit）—— 关掉 dsh 后重跑本脚本（日志 $settingsLog）"
+        if (Test-Path -LiteralPath $settingsLog) { Write-Host (Get-Content -LiteralPath $settingsLog -Raw -Encoding UTF8) }
+      }
+    }
+  }
+
+  # 4c-7. 读回来断言 adg-settings 的三格（判据与 4c-1 / 4c-3 / 4c-5 一样）。
+  # 症状最轻（少一页设置、不报错），但"包在位而 manifest 缺一格"仍会让人以为装好了却在设置里找不到它。
+  if (-not $settingsSkipped) {
+    $settingsReread = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $settingsDepLine = @($settingsReread.dependencies.PSObject.Properties | Where-Object { $_.Name -eq 'adg-settings' }).Count -gt 0
+    $settingsListedLine = @($settingsReread.dsh.profile.bundles) -contains 'adg-settings'
+    $settingsPkgName = ''
+    if (Test-Path -LiteralPath $settingsInProfile) {
+      $settingsPkgName = (Get-Content -LiteralPath $settingsInProfile -Raw -Encoding UTF8 | ConvertFrom-Json).name
+    }
+    if ($settingsPkgName -ne 'adg-settings') { $settingsNeedInstall = $true }
+    if ($settingsDepLine -and $settingsListedLine -and ($settingsPkgName -eq 'adg-settings')) {
+      $installNotes += "$name : adg-settings 三格齐（node_modules 真目录 + dependencies + dsh.profile.bundles）"
+    } elseif ($settingsPkgName -eq 'adg-settings') {
+      $installNotes += "$name : adg-settings 包在位，但 manifest 缺一格（dependencies=$settingsDepLine / dsh.profile.bundles=$settingsListedLine）—— 手工补上再重启"
+    }
+  }
+}
+
+# ── 稳定副本 ↔ profile 副本：逐文件核一遍，别让"新加的文件没传播"静默发生 ─────────────
+# 两个副本是**逐文件**硬链接，pnpm 只在 `dsh plugin add` 时拷文件 ⇒ 往某个包里加一个新文件后，
+# 重跑本脚本只更新稳定副本，已经装好的 profile 副本仍然缺那个文件 —— 表现是装载时 import 找不到
+# 模块（工具整条消失 / 设置页不出现），而且没有任何提示（2026-10-08 真发生过一次：
+# lib\user-settings.mjs 漏进了 notify 的拷贝清单）。这里统一报出来。
+foreach ($spec in @(
+    @{ Pkg = 'adg-notify'; Dest = $notifyDest },
+    @{ Pkg = 'adg-permission'; Dest = $permDest },
+    @{ Pkg = 'adg-delegate'; Dest = $delegateDest },
+    @{ Pkg = 'adg-settings'; Dest = $settingsDest })) {
+  if (-not (Test-Path -LiteralPath $spec.Dest)) { continue }
+  $expected = @()
+  foreach ($f in Get-ChildItem -LiteralPath $spec.Dest -Recurse -File) {
+    $rel = $f.FullName.Substring($spec.Dest.Length + 1)
+    if ($rel -eq 'cli.mjs') { continue }
+    if ($rel -like 'node_modules*') { continue }
+    $expected += $rel
+  }
+  foreach ($copyDir in (Get-ChildItem -Path (Join-Path $root "profiles\*\node_modules\$($spec.Pkg)") -Directory -ErrorAction SilentlyContinue)) {
+    $missing = @($expected | Where-Object { -not (Test-Path -LiteralPath (Join-Path $copyDir.FullName $_)) })
+    if ($missing.Count -gt 0) {
+      $installNotes += "$($copyDir.Parent.Parent.Name) : $($spec.Pkg) 的 profile 副本缺 $($missing.Count) 个文件（$($missing[0])…）—— 关掉 dsh 后重跑本脚本，或 dsh plugin --profile $($copyDir.Parent.Parent.Name) add `"file:$($spec.Dest)`""
+    }
+  }
 }
 
 Write-Host "已安装到 dsh 用户根：$root"
@@ -721,6 +847,7 @@ Write-Host "  desktop -> $desktopNote"
 Write-Host "  notify  -> $notifyNote（notify_user 工具；每个 profile 的安装结果见下面 profile 行）"
 Write-Host "  permission -> $permNote（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
 Write-Host "  delegate -> $delegateNote（delegate 工具 —— 现有的**唯一委派入口**；只有调度智能体拿得到，子代理的永禁名单里有 delegate / set_child_permission / ask_user_question / agent）"
+Write-Host "  settings -> $settingsNote（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
 foreach ($note in $installNotes) { Write-Host "  profile -> $note" }
 Write-Host ""
 Write-Host "下一步：重启 dsh，然后在新建对话里选择「Adg 多智能体模式」。"
@@ -730,6 +857,7 @@ Write-Host "  desktop 的自检：node `"$desktopDest\cli.mjs`" profile —— �
 Write-Host "（adg-notify 插件：装了之后必须重启 dsh 才注册 —— loader 会按解析路径缓存 ES 模块。）"
 Write-Host "（adg-permission 插件：同样要重启 dsh 才注册；它不进任何 allow —— 只有调度智能体用。）"
 Write-Host "（adg-delegate 插件：同样要重启 dsh 才注册；它是唯一的委派入口 —— 没它调度者开不了子代理。）"
+Write-Host "（adg-settings 插件：同样要重启 dsh 才注册 —— 重启后设置里才会出现「Adg 设置」；没装它只是少一页设置，通知的出厂默认照旧。）"
 if ($packageFailed) {
   Write-Host ""
   Write-Host "注意：至少有一步 pnpm 没成功，$bundleName 可能还没装进 profile（上面的 profile 行里写明了）。" -ForegroundColor Yellow

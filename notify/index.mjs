@@ -5,12 +5,13 @@
 //   - `name` 必须与 cordis.patch.yml 里 insert 行的 `id` 一致
 //   - 工具定义走 `defineTool`（`output` 是硬要求，缺了直接 TypeError）
 //
-// 本文件只做「把工具挂上去」；真正的 toast 在 lib/toast.mjs，可注入、可离线自测。
-// 契约与红线见 AGENTS.md / design.md。
+// 本文件只做「把工具挂上去」；真正的 toast 在 lib/toast.mjs，用户在设置页里调的那三项在
+// lib/user-settings.mjs。契约与红线见 AGENTS.md / design.md。
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
-import { DEFAULT_APP_ID, sendToast } from './lib/toast.mjs';
+import { DEFAULT_APP_ID, DEFAULT_TITLE, sendToast } from './lib/toast.mjs';
+import { USER_DEFAULTS, readUserDefaults, resolveRequest } from './lib/user-settings.mjs';
 
 /** 插件名：必须等于 cordis.patch.yml 里 insert 行的 `id`。 */
 export const name = 'adg-notify';
@@ -51,13 +52,20 @@ const OUTPUT_SCHEMA = {
  * 单独导出是为了让自测能用**真的** `defineTool` 造一遍定义 —— 作者侧 schema 方言
  * 写错时，真 `defineTool` 会当场抛 `JsonSchemaError`（见 design.md N12）。
  *
- * @param {{send?: (input: object) => Promise<object>, defineTool?: Function}} [deps]
+ * @param {{
+ *   send?: (input: object) => Promise<object>,
+ *   defineTool?: Function,
+ *   defaults?: () => {notifyTitle: string, notifySound: boolean, notifyPersist: boolean},
+ * }} [deps]
  * @returns {object} dsh-tools 的 ToolDefinition
  */
 export function createNotifyUserTool(deps = {}) {
   const send = deps.send ?? ((input) => sendToast(input));
   // 允许注入 `defineTool` 只是为了自测能拿真实现再编译一遍；运行时永远用真货。
   const compile = deps.defineTool ?? defineTool;
+  // `deps.defaults` 是「设置页那一层」的取值点：运行时由 apply 接上真文件读取（见下），
+  // 不传就是出厂默认 —— 自测因此不碰真实文件系统，行为也与历史一致。
+  const readDefaults = deps.defaults ?? (() => USER_DEFAULTS);
 
   return compile({
     name: TOOL_NAME,
@@ -74,11 +82,11 @@ export function createNotifyUserTool(deps = {}) {
       },
       title: {
         type: 'string',
-        description: `通知标题，默认 "${'DSH 通知'}"。想点名来源时可写成例如 "浏览器操作需要你登录"。`,
+        description: `通知标题，默认用设置页的「通知默认标题」（出厂 "${'DSH 通知'}"）。想点名来源时可写成例如 "浏览器操作需要你登录"。`,
       },
       silent: {
         type: 'boolean',
-        description: 'true = 静音弹出（不响提示音）。默认 false。',
+        description: 'true = 静音弹出（不响提示音）。默认跟随设置页的「响提示音」（出厂出声）。',
       },
     },
     output: {
@@ -101,11 +109,9 @@ export function createNotifyUserTool(deps = {}) {
       // 失败一律抛错（脚本缺失 / PowerShell 不可用 / 非零退出 / 超时），
       // 绝不返回 { shown: false } 冒充成功 —— 见 design.md 的 D4。
       //
-      // 注意：只在 args.silent 真的是布尔时才把 silent 放进入参。dsh-tools 的
-      // 参数校验会就地补齐已声明属性（补成 undefined），所以不能靠 `'silent' in args`
-      // 判断"用户有没有传"；写 undefined 又会把默认值覆盖掉，故用 typeof 判定。
-      const request = { message: args.message, title: args.title };
-      if (typeof args.silent === 'boolean') request.silent = args.silent;
+      // 这一次调用的参数 > 设置页的值。`readDefaults()` **每次调用**重读一次设置文件，
+      // 所以设置页一保存，下一次调用的行为就变了（不需要重启 dsh）。
+      const request = resolveRequest(args, readDefaults());
 
       const result = await send(request);
       return {
@@ -133,6 +139,8 @@ export function apply(ctx, config = {}) {
   };
   const tool = createNotifyUserTool({
     send: (input) => sendToast(input, overrides),
+    // 生产路径的文件读取点。**不在注册时读、每次调用读**：这是「保存后立即生效」的全部实现。
+    defaults: () => readUserDefaults(),
   });
   ctx.tools.register(tool);
   ctx.logger?.debug?.(`adg-notify: registered tool "${TOOL_NAME}"`);
