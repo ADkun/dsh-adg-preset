@@ -2,7 +2,7 @@
 title: notify 模块测试指南
 owner: Adg preset 维护者
 status: current
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-08
 ---
 
 # notify 模块测试指南
@@ -40,6 +40,7 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 | D5 | Notification / ToastRequest | argv 是 Windows PowerShell 5.1 的调用形状，`-Sound` / `-DisappearAfterMs` 随参数走；空 `message` / 非字符串 `title` / 非整数毫秒都被拒；默认标题 `DSH 通知`、默认存活 `0`（⇒ `scenario="reminder"`，常驻） | I1 / I2 / I4 / I5 | [机检] |
 | D6 | 脚本资产 / ToastRequest | `notify/scripts/toast.ps1` **ASCII-only、无 BOM、含 `$ErrorActionPreference = 'Stop'`**，用的是 Windows PowerShell 5.1 宿主、不出现 `pwsh.exe`、不出现 `BurntToast` | I4 | [机检] |
 | D7 | 路径解析 | 在 Windows 上默认解析到 `System32\WindowsPowerShell\v1.0\powershell.exe`（不是 `pwsh`）；`PACKAGE_ROOT` 由本文件位置推出，**不写死绝对路径** | I4 | [机检] |
+| D8 | 脚本资产（常驻分支） | 常驻分支同时给 `scenario="reminder"` **与**一个 `content="Dismiss"` / `arguments="dismiss"` / `activationType="system"` 的 action（`content` 省掉整条通知到不了屏幕；`activationType` 不许是 foreground / background / protocol）；`if ($sticky)` 恰好两处（scenario 一处、actions 一处）；`<actions>` 追加在 `<audio>` 之后、action 先挂进 actions 再挂进 toast | I5a | [机检] |
 
 一条**最重要的测试纪律**（D2 的来源）：造工具定义必须用**真的** `defineTool`（本地助手 `realToolDefinition()`）。只跑 stub 的自测证明不了这个插件能被装载 —— schema 形状写错时 `apply()` 会在注册那一刻抛 `JsonSchemaError`。
 
@@ -108,8 +109,13 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 
 - **未观测**：重启 dsh 后 `notify_user` 是否真的出现在某次委派给出的子代理工具面里；量法：重启 dsh → 新建 Adg 对话 → 用 `delegate` 派一个带 `notify_user` 的子代理，看它那次拿到的工具面里有没有这个名字，或直接派一次"撞登录墙"的任务看它是否调 `notify_user`。
 - **未观测**：子代理是否会在正确的时机主动调它；量法：在会话转写里检索 `notify_user` 的调用；若出现"撞了登录墙却干等 / 直接失败"，说明 description 的触发面写得不够。
-- **未观测**：toast 在桌面上的可见形态（是否出现在右下角 / 通知中心、标题与多行正文的排版）；量法：跑 `node cli.mjs send --show`，`--message` 里带两行正文，人眼确认。
-- **未观测**：默认 `disappearAfterMs = 0`（`scenario="reminder"`）在真机上的实际驻留形态 —— 是否真的留在通知中心直到用户处理、以及"提醒"场景下 Windows 是否另加一层过期策略；量法：`node cli.mjs send --message '常驻测试' --show`（默认 ms=0），人眼确认通知**不自动消失**，并检查 `Get-Date` 后多分钟仍在通知中心；反向对照跑一次 `--ms 5000`，确认它确实会自己消失。
+- **已观测（2026-10-08，本机 Win11 · 2560×1600 · 截屏 + `read_image` 判读）**：toast 的可见形态 —— 修好后的常驻通知是**屏幕右下角**一条横幅（压在任务栏之上），**标题一行 + 正文一行**，常驻时多一枚按钮（本模块写死 `content="Dismiss"`，所以按钮字是英文 `Dismiss`，不随界面语言变），右上角另有系统的关闭叉。量法：`node cli.mjs send --message '正文' --show` 之后截屏判读。**未逐条核**：正文带换行时的排版（同一条通知里正文换行会撑成多行、但模板是 `ToastText02` 的两段文本）、长标题截断。
+- **已观测（2026-10-08，同一台机器，逐张截屏判读）**：默认 `disappearAfterMs = 0`（`scenario="reminder"`）在真机上**会留在屏幕上**，但**前提是同时带一个按钮**（I5a）—— 只设 `scenario` 会被 Windows **静默忽略**、退回普通通知、几秒内自己消失。实测（发送时刻 → 判读）：
+  - 修好前：`node cli.mjs send --message 'BASELINE 常驻测试 ms=0' --show`（exit 0，返回 `disappearAfterMs: 0`）→ 弹后 **6.0s 横幅在、19.7s 横幅已消失**。用户报的就是这个现象。
+  - 修好后同一条命令 → 弹后 **8.15s / 34.78s / 71.43s 三张里横幅都在**（带 `Dismiss` 按钮）⇒ 满足"≥60 秒仍在屏幕上"。
+  - 反向对照（同一条真机路径）：`--ms 5000` → 6.19s 在、17.14s 已消失；`--ms 8000`（＝设置页把「通知常驻」关掉时 `AUTO_DISMISS_MS = 8000` 走的那条，落在 `duration="long"`）→ 5.99s 在、33.77s 已消失。
+  - 单变量隔离（临时实验脚本 `exp-toast.ps1`，只落系统临时目录、不进仓库）：①`reminder` 无按钮 → 6.0s 在 / 19.7s 无；②`reminder` + system dismiss 按钮 → 8.1s / 34.8s / 72.7s 都在；③**无 `scenario`** + 同一个按钮 → 7.0s 在 / 23.8s 无。⇒ 起作用的是「`scenario` **且** 至少一个按钮」，两者缺一不可。结论与官方两处原文一致，见 I5a。
+  - 两个坑（都实测过）：①`cli.mjs send` **不读**设置文件（只吃 `--ms`），所以"设置页关掉常驻 → 8000"这一跳由 `notify/lib/user-settings.mjs` 的用例钉住，真机上验的是同一个 8000 值；②**通知中心（`ToastNotificationManager::History`）里有记录证明不了屏幕上看得见** —— 被静默忽略的 reminder 一样留在 History 里（本机实测），所以判读只能靠截屏。
 - **未观测**：宿主正在运行时 `dsh plugin add` 的失败形态（`os error 32` 是**预期**，脚本会如实报告并不中断后续步骤）；量法：宿主在跑时执行 `install.ps1`，看第 4c 步是否如实报告且没有中断；要真正走到 `dsh plugin add`，先 `dsh plugin --profile <profile> remove adg-notify`（宿主在跑时有风险，何时做由人决定）。
 - **未观测**：非 Windows 平台的形状；量法：在非 Windows 机器上跑 `node --test test`，看非 win32 那条用例通过、其余按预期失败。本模块的定位就是 Windows 通知，**不打算**为其他平台实现降级。
 - **未观测**：并发投递（连续两条通知 Windows 会不会吞掉一条、通知中心里是一条还是两条）；量法：`node cli.mjs send --message a && node cli.mjs send --message b`，看通知中心。

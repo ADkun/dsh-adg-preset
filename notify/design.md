@@ -2,7 +2,7 @@
 title: notify 模块设计
 owner: Adg preset 维护者
 status: current
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-08
 ---
 
 ## 职责与边界
@@ -45,7 +45,13 @@ last_reviewed: 2026-10-04
 `scriptPath`（默认 `PACKAGE_ROOT/scripts/toast.ps1`）、`powerShellPath`、`argv`、`timeoutMs`。
 
 - **I4** 执行器**只能是 Windows PowerShell 5.1**（`.ps1` 必须 ASCII-only、无 BOM），命令行固定为 `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File <script> -Title <…> -Body <…> -AppId <…> -Sound <default|silent> -DisappearAfterMs <n>`；`-Body` 传的是已 join 的多行字符串（PowerShell 侧按行拆成多个 `<text>`）。理由：`pwsh` 没有 `Windows.UI.Notifications` 的 WinRT 投影；5.1 按 ANSI 代码页解码无 BOM 脚本，非 ASCII 会乱码，所以中文只走 `-Title` / `-Body` 实参。脚本路径由 `import.meta.url` 推出、PowerShell 路径由 `%SystemRoot%` 推出，都不写死本机路径。载体：D5 / D6 / D7 用例。
-- **I5** 存活时间与 Windows toast 的 `duration` 对齐：`<= 0` → `scenario="reminder"`（常驻提醒，不设 `ExpirationTime`，留在通知中心直到用户处理）；`> 7000` → `duration="long"`；否则 `short`。默认 `0`（⇒ 常驻）。理由：这是一条"该你动手了"的通知，8 秒（long duration）在实机上读作"还没来得及看就没了"；常驻才是它该有的形态。`silent` 时追加 `<audio silent="true"/>`。AppId 默认借 PowerShell 自己的 AppUserModelID（`{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`）—— 零模块、零 COM 注册的代价是通知归属显示为 Windows PowerShell。可用环境变量覆盖（只为排错与测试）：`ADG_NOTIFY_TOAST_SCRIPT` / `ADG_NOTIFY_POWERSHELL` / `ADG_NOTIFY_TIMEOUT_MS` / `ADG_NOTIFY_APP_ID`。载体：D5 用例。
+- **I5** 存活时间与 Windows toast 的 `duration` / `scenario` 对齐：`<= 0` → `scenario="reminder"` **并且必须同时带一个 system dismiss 按钮**（见 I5a）；`> 7000` → `duration="long"`；否则 `short`。默认 `0`（⇒ 常驻）。理由：这是一条"该你动手了"的通知，8 秒（long duration）在实机上读作"还没来得及看就没了"；常驻才是它该有的形态。`silent` 时追加 `<audio silent="true"/>`。AppId 默认借 PowerShell 自己的 AppUserModelID（`{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe`）—— 零模块、零 COM 注册的代价是通知归属显示为 Windows PowerShell。可用环境变量覆盖（只为排错与测试）：`ADG_NOTIFY_TOAST_SCRIPT` / `ADG_NOTIFY_POWERSHELL` / `ADG_NOTIFY_TIMEOUT_MS` / `ADG_NOTIFY_APP_ID`。载体：D5 用例。
+- **I5a** 常驻**必须搭一个按钮**：`scenario="reminder"` 单独出现时会被 Windows **静默忽略**，通知退回普通通知、几秒内自己消失（**静默**＝没有报错、`Show()` 照常成功、通知中心里也照常有这条记录，只有屏幕上没有它）。官方两处原文：
+  - [element-toast](https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-toast)（`scenario` 属性）：`"reminder" - A reminder notification. This will be displayed pre-expanded and stay on the user's screen till dismissed. Note that this will be silently ignored unless there's a toast button action that activates in background.`
+  - [App notification content](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-content)（Reminders 节）：`In the reminder scenario, the notification will stay on screen until the user dismisses it or takes action. … You must provide at least one button on your app notification. Otherwise, the notification will be treated as a normal notification.`（同页 Alarms 节重复同一句；该页自己的 XML 样例反而漏写了 `actions`，属文档自身不一致。）
+
+  本机实测（2026-10-08，Win11，逐张截屏 + 读图，量法见 testing-guide）：`reminder` **不带** `<actions>` → 弹后 6.0s 还在、19.7s 已消失；`reminder` **带**一个 system dismiss 按钮 → 8.1s / 34.8s / 72.7s 三张都在。⇒ 起作用的是「scenario **且** 至少一个按钮」，两者缺一不可。
+  按钮选型：`<action content="Dismiss" arguments="dismiss" activationType="system"/>`——**system dismiss**。理由：点击只让通知消失，**不启动任何进程**（`foreground` 会激活应用并回传 `arguments`、`background` 会拉起后台任务，两者都得有可被激活的实体，本模块只有一次性脚本，没有可激活的 App）；system 动作是 raw XML 专属形态，官方出处见 [Snooze/dismiss](https://learn.microsoft.com/en-us/windows/apps/develop/notifications/app-notifications/app-notifications-content) 一节（"System actions, such as snoozing or dismissing the notification, are supported both for UWP apps and for Windows App SDK … using raw XML"）。`content` 属性**不能省**：[element-action](https://learn.microsoft.com/en-us/uwp/schemas/tiles/toastschema/element-action) 把它列为必填，且实测省掉它整条通知**根本到不了屏幕**（通知中心有记录、屏幕上没有横幅）。`content` 写什么就是屏幕上按钮的字（本模块写死 `Dismiss`，不随界面语言变；通知正文才是要走本地化的那部分）。`<actions>` 必须排在 `<audio>` 之后：toast schema 定死子元素顺序 `visual, audio?, commands?, actions?, header?`。载体：D8 用例（钉住源码形状），真机驻留口径见 testing-guide 的已观测项。
 
 ### ToastResult（返回值，不可变值对象）
 

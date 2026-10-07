@@ -435,3 +435,46 @@ test('D7: PACKAGE_ROOT 由本文件位置推出，不是写死的绝对路径', 
   }
   assert.ok(os.tmpdir().length > 0);
 });
+
+// ---------- D8：常驻分支的「scenario 必须配按钮」这条硬规则 ----------
+//
+// Win11 会**静默忽略**没有按钮的 scenario="reminder"：通知退回普通通知，几秒后自己消失。
+// 这一条只能靠源码形状钉住 —— 真机行为（驻留 ≥60s / 反向对照仍自动消失）在 testing-guide
+// 里按量法记，测试这里只保证「常驻分支同时给了 scenario 与一个按钮」这两个条件不被删掉。
+test('D8: 常驻分支同时给 scenario="reminder" 与一个 system dismiss action，非常驻分支不给按钮', () => {
+  const text = fs.readFileSync(SCRIPT, 'ascii');
+
+  // 存活映射本身不变：<=0 走 scenario，>7000 走 long，其余 short。
+  assert.match(text, /\$sticky = \$DisappearAfterMs -le 0/);
+  assert.match(text, /if \(\$sticky\) \{\s*\r?\n\s*\$toastNode\.SetAttribute\('scenario', 'reminder'\)/);
+  assert.match(text, /SetAttribute\('duration', 'long'\)/);
+  assert.match(text, /SetAttribute\('duration', 'short'\)/);
+
+  // 按钮：<actions><action arguments="dismiss" activationType="system"/></actions>
+  assert.match(text, /CreateElement\('actions'\)/);
+  assert.match(text, /CreateElement\('action'\)/);
+  // content 是 element-action 的必填属性，而且省掉它整条通知都到不了屏幕
+  // （2026-10-08 实测），所以这里连它一起钉住。
+  assert.match(text, /SetAttribute\('content', 'Dismiss'\)/);
+  assert.match(text, /SetAttribute\('arguments', 'dismiss'\)/);
+  assert.match(text, /SetAttribute\('activationType', 'system'\)/);
+  // activationType 必须是 system：点按钮只让通知消失，不许去拉起任何进程
+  // （foreground = 激活应用并送 arguments；background = 拉起后台任务）。
+  assert.doesNotMatch(text, /SetAttribute\('activationType', '(foreground|background|protocol)'\)/);
+  assert.doesNotMatch(text, /-File|powershell\.exe'\)/, 'action 的 arguments 不许是个要跑的命令行');
+
+  // 只有常驻分支造按钮：`if ($sticky)` 恰好两处（一处 scenario、一处 actions）。
+  const stickyBlocks = text.match(/if \(\$sticky\) \{/g) || [];
+  assert.equal(stickyBlocks.length, 2, 'scenario 与 actions 各由一个 if ($sticky) 守着');
+
+  // <actions> 必须排在 <audio> 之后：toast schema 定死子元素顺序
+  // visual, audio?, commands?, actions?, header?。
+  assert.ok(
+    text.indexOf("CreateElement('actions')") > text.indexOf("CreateElement('audio')"),
+    '<actions> 要追加在 <audio> 之后，否则 xml 校验不过',
+  );
+  assert.ok(
+    text.indexOf("AppendChild($actions)") > text.indexOf("CreateElement('action')"),
+    '要先把 action 挂进 actions，再把 actions 挂进 toast',
+  );
+});

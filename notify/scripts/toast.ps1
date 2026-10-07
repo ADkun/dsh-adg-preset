@@ -39,7 +39,8 @@ if (-not [string]::IsNullOrWhiteSpace($Body)) {
 }
 
 $toastNode = $xml.GetElementsByTagName('toast').Item(0)
-if ($DisappearAfterMs -le 0) {
+$sticky = $DisappearAfterMs -le 0
+if ($sticky) {
     $toastNode.SetAttribute('scenario', 'reminder')
 } elseif ($DisappearAfterMs -gt 7000) {
     $toastNode.SetAttribute('duration', 'long')
@@ -50,6 +51,33 @@ if ($Sound -eq 'silent') {
     $audio = $xml.CreateElement('audio')
     $audio.SetAttribute('silent', 'true')
     $toastNode.AppendChild($audio) | Out-Null
+}
+if ($sticky) {
+    # scenario="reminder" alone does NOTHING: the shell drops the attribute
+    # unless the toast also carries at least one button action.
+    #   element-toast (scenario): "reminder" - ... stay on the user's screen
+    #     till dismissed. Note that this will be silently ignored unless there's
+    #     a toast button action that activates in background.
+    #   app-notifications-content (Reminders): You must provide at least one
+    #     button on your app notification. Otherwise, the notification will be
+    #     treated as a normal notification.
+    # Measured on this machine 2026-10-08: reminder with no <actions> left the
+    # screen in under 20 s; the same toast plus the single action below was
+    # still on screen at 72 s. So the button is what makes the scenario real.
+    # It is a system dismiss: clicking it removes the toast and launches no
+    # process (arguments/activationType are the raw-XML system-action form
+    # documented under Snooze/dismiss). content is mandatory on element-action
+    # and must actually be there: measured 2026-10-08, the same toast with the
+    # content attribute left out never reached the screen at all.
+    # <actions> goes last: the toast schema fixes the child order to
+    # visual, audio?, commands?, actions?, header?.
+    $actions = $xml.CreateElement('actions')
+    $action = $xml.CreateElement('action')
+    $action.SetAttribute('content', 'Dismiss')
+    $action.SetAttribute('arguments', 'dismiss')
+    $action.SetAttribute('activationType', 'system')
+    $actions.AppendChild($action) | Out-Null
+    $toastNode.AppendChild($actions) | Out-Null
 }
 
 $toast = [Windows.UI.Notifications.ToastNotification]::new($xml)
