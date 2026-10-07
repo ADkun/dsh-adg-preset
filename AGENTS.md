@@ -1,6 +1,6 @@
 # AGENTS.md — dsh-adg-preset
 
-Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、三个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面）、四份用户技能（`skills/`）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
+Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、三个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面）、五份用户技能（`skills/`）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
 
 本文件是**给改这个仓库的人/agent 看的路由入口**：只写常驻内容（命令、红线、模块地图、质量门），设计细节一律下沉到模块文档。**给人看的项目总览与安装/使用说明在 `README.md`**（改任何东西之前先读它对应的小节）。
 
@@ -111,7 +111,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 
 **新建模块的登记义务**：在 Project Map 加一行（唯一的登记点），并按「三信号」判断要不要给新模块建 `AGENTS.md`（有独立命令 / 有模块特有红线 / 需要跨模块路由，三者有其一方建）。
 
-不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的四份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下，均无独立命令）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
+不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的五份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下；前四份均无独立命令，`adg-grill-me` 另有 `/adg-grill-me` 这个用户入口）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
 
 ## 版本区（文档目录入口）
 
@@ -122,7 +122,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | `AGENTS.md`（本文件） | 根入口：路由（命令 / 红线 / 生效方式 / 模块地图 / 版本区 / 质量门） |
 | `README.md` | 人向总览：项目是什么、怎么装、怎么用、怎么排错 |
 | `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
-| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops`） | 四份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作（装到用户技能根） |
+| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me`） | 五份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈（装到用户技能根） |
 | `docs-work/`（**临时工作目录，不在版本区**） | 过程件（changelog / handoff / pending / 工作稿 / 证据快照）；滚动更新、可被清理，任务交付前清空 |
 
 模块 `AGENTS.md` 的「版本区」一节指回本表，只登记本模块那三份，不另抄一份清单。
