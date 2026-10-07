@@ -1,6 +1,6 @@
 # AGENTS.md — settings（Adg 设置页框架）
 
-本模块 = 一个 dsh 插件包 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（浏览器半边 `client.js`），并提供宿主半边的同源读写路由 **`/api/adg-settings/settings`** 与一个用户根设置文件 **`<DSH_PROFILE_DIR|DSH_HOME|~/.dsh>/adg-settings.json`**。它是**一套框架**：加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 在 `client.js` 的 DICT 里加两条文案（`label` / `hint`），宿主与客户端的逻辑都不用改。首个占用者是通知三项（`notifyTitle` / `notifySound` / `notifyPersist`，由 `adg-notify` 消费）。设计与不变量见 [design.md](design.md) 的 I1..I14。
+本模块 = 一个 dsh 插件包 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（浏览器半边 `client.js`），并提供宿主半边的同源读写路由 **`/api/adg-settings/settings`** 与一个设置文件 **`<DSH_PROFILE_DIR|DSH_HOME|~/.dsh>/adg-settings.json`**（**优先 profile 目录**：本机宿主进程里 `DSH_PROFILE_DIR` 就是当前 profile 目录 ⇒ 真实落点是 `<profile>\adg-settings.json`，**不是**用户根那份）。它是**一套框架**：加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 在 `client.js` 的 DICT 里加两条文案（`label` / `hint`），宿主与客户端的逻辑都不用改。首个占用者是通知三项（`notifyTitle` / `notifySound` / `notifyPersist`，由 `adg-notify` 消费）。设计与不变量见 [design.md](design.md) 的 I1..I14。
 
 **为什么本模块有独立文档**（三样信号都在）：有独立于仓库根的命令（`node --test test`）；有模块特有红线（只放用户要的项、技术类键不许进页面、键名真相只在 `lib/schema.mjs`、消费方不许 import 本包、未知键与非法值必须拒且不落盘）；有跨模块路由（`install.ps1` / `install.sh` 部署它；`adg-notify` 按**文件契约**读它写的设置文件）。
 
