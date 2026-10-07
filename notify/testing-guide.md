@@ -40,7 +40,7 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 | D5 | Notification / ToastRequest | argv 是 Windows PowerShell 5.1 的调用形状，`-Sound` / `-DisappearAfterMs` 随参数走；空 `message` / 非字符串 `title` / 非整数毫秒都被拒；默认标题 `DSH 通知`、默认存活 `0`（⇒ `scenario="reminder"`，常驻） | I1 / I2 / I4 / I5 | [机检] |
 | D6 | 脚本资产 / ToastRequest | `notify/scripts/toast.ps1` **ASCII-only、无 BOM、含 `$ErrorActionPreference = 'Stop'`**，用的是 Windows PowerShell 5.1 宿主、不出现 `pwsh.exe`、不出现 `BurntToast` | I4 | [机检] |
 | D7 | 路径解析 | 在 Windows 上默认解析到 `System32\WindowsPowerShell\v1.0\powershell.exe`（不是 `pwsh`）；`PACKAGE_ROOT` 由本文件位置推出，**不写死绝对路径** | I4 | [机检] |
-| D8 | 脚本资产（常驻分支） | 常驻分支同时给 `scenario="reminder"` **与**一个 `content="Dismiss"` / `arguments="dismiss"` / `activationType="system"` 的 action（`content` 省掉整条通知到不了屏幕；`activationType` 不许是 foreground / background / protocol）；`if ($sticky)` 恰好两处（scenario 一处、actions 一处）；`<actions>` 追加在 `<audio>` 之后、action 先挂进 actions 再挂进 toast | I5a | [机检] |
+| D8 | 脚本资产（常驻分支） | 常驻分支同时给 `scenario="reminder"` **与**一个 `content="Dismiss"` / `arguments="dismiss"` / `activationType="system"` 的 action（`content` 省掉整条通知到不了屏幕；`activationType` 不许是 foreground / background / protocol）—— **这是源码文本回归**（`readFileSync` + 正则），只防写法回退、**证明不了真机行为**（真机口径见下面「人工 review 项」的已观测条）；`activationType="system"` 本身是官方枚举外的未文档化取值，依据是实测而非文档，见 I5a；`if ($sticky)` 恰好两处（scenario 一处、actions 一处）；`<actions>` 追加在 `<audio>` 之后、action 先挂进 actions 再挂进 toast | I5a | [机检] |
 
 一条**最重要的测试纪律**（D2 的来源）：造工具定义必须用**真的** `defineTool`（本地助手 `realToolDefinition()`）。只跑 stub 的自测证明不了这个插件能被装载 —— schema 形状写错时 `apply()` 会在注册那一刻抛 `JsonSchemaError`。
 
@@ -72,7 +72,7 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 
 ### 设置页那份设置文件（本模块 ← `settings/`）消费的是**三个键名、默认值与界**
 
-本模块的三项行为（`notifyTitle` / `notifySound` / `notifyPersist`）不是本模块定的：键名、默认值与界的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`（`consumer === 'adg-notify'` 那三条登记）。本模块**只读**那份文件 `${DSH_HOME:-~/.dsh}/adg-settings.json`（经 `notify/lib/user-settings.mjs` 的 `settingsFile()` / `readUserDefaults()` / `resolveRequest()`），**不 import `adg-settings` 包** —— 见 R13 与 `design.md` 的 I15。
+本模块的三项行为（`notifyTitle` / `notifySound` / `notifyPersist`）不是本模块定的：键名、默认值与界的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`（`consumer === 'adg-notify'` 那三条登记）。本模块**只读**那份文件 —— 落点＝`settingsFile()` 的优先序 `${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`（本机宿主进程里 `DSH_PROFILE_DIR=C:\Users\adkun\.dsh\profiles\web` ⇒ 真实落点是 `<profile>` 目录下那份，**不是**用户根那份）；读写经 `notify/lib/user-settings.mjs` 的 `settingsFile()` / `readUserDefaults()` / `resolveRequest()`，**不 import `adg-settings` 包** —— 见 R13 与 `design.md` 的 I15。
 
 | 键 | 默认 | 消费点 |
 |---|---|---|
@@ -113,13 +113,16 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 - **已观测（2026-10-08，同一台机器，逐张截屏判读）**：默认 `disappearAfterMs = 0`（`scenario="reminder"`）在真机上**会留在屏幕上**，但**前提是同时带一个按钮**（I5a）—— 只设 `scenario` 会被 Windows **静默忽略**、退回普通通知、几秒内自己消失。实测（发送时刻 → 判读）：
   - 修好前：`node cli.mjs send --message 'BASELINE 常驻测试 ms=0' --show`（exit 0，返回 `disappearAfterMs: 0`）→ 弹后 **6.0s 横幅在、19.7s 横幅已消失**。用户报的就是这个现象。
   - 修好后同一条命令 → 弹后 **8.15s / 34.78s / 71.43s 三张里横幅都在**（带 `Dismiss` 按钮）⇒ 满足"≥60 秒仍在屏幕上"。
-  - 反向对照（同一条真机路径）：`--ms 5000` → 6.19s 在、17.14s 已消失；`--ms 8000`（＝设置页把「通知常驻」关掉时 `AUTO_DISMISS_MS = 8000` 走的那条，落在 `duration="long"`）→ 5.99s 在、33.77s 已消失。
+  - 反向对照（同一条真机路径）：`--ms 5000` → 6.19s 在、17.14s 已消失；`--ms 8000`（＝设置页把「通知常驻」关掉时 `AUTO_DISMISS_MS = 8000` 走的那条，落在 `duration="long"`）→ 5.99s 在、33.77s 已消失。**独立复核子代理在本机复测到的是另一组数：`--ms 8000` 约 16.9s 消失、`--ms 5000` 约 16.8s** —— 与我这两次读数差在**系统回收粒度**上（同一机制：几秒到十几秒后自动消失，与常驻的"分钟级乃至不动"是两个量级）；两组数都只是"某时刻在 / 某时刻不在"的截断读数，不构成精确寿命。
   - 单变量隔离（临时实验脚本 `exp-toast.ps1`，只落系统临时目录、不进仓库）：①`reminder` 无按钮 → 6.0s 在 / 19.7s 无；②`reminder` + system dismiss 按钮 → 8.1s / 34.8s / 72.7s 都在；③**无 `scenario`** + 同一个按钮 → 7.0s 在 / 23.8s 无。⇒ 起作用的是「`scenario` **且** 至少一个按钮」，两者缺一不可。结论与官方两处原文一致，见 I5a。
   - 两个坑（都实测过）：①`cli.mjs send` **不读**设置文件（只吃 `--ms`），所以"设置页关掉常驻 → 8000"这一跳由 `notify/lib/user-settings.mjs` 的用例钉住，真机上验的是同一个 8000 值；②**通知中心（`ToastNotificationManager::History`）里有记录证明不了屏幕上看得见** —— 被静默忽略的 reminder 一样留在 History 里（本机实测），所以判读只能靠截屏。
   - **装到本机之后的端到端（同机、装完未重启 dsh，2026-10-08 约 03:19）**：在宿主里直接调 `notify_user`（走的就是 profile 里那份 `adg-notify`）→ **[人]** 用户本人当场确认：**这条通知不自动关闭，并且有一枚 Dismiss 按钮，点了按钮通知就消失**，屏幕上不留残留。同一时段我自己连拍的三张截屏（`e2e-t05/t30/t70.png`，发送后 ≥6.94s / ≥33.58s / ≥75.22s）**一张都没抓到横幅** —— 因为用户看到后很快就点掉了（Dismiss 会把它同时从屏幕和通知中心拿走）；**这不等于「通知没弹出来」**，这次的常驻判读由 [人] 观测补位。顺带第三个坑：PowerShell 5.1 里 `History.GetHistory($appId)` 的返回值是 `__ComObject`，直接取 `.Count` / `.Size` 都是空值（本次实测）—— 别把它读成「没有通知」，要逐条看内容得换写法。⇒ 装后环境上常驻成立（含按钮可关）；本次只改了 `scripts/toast.ps1`（每次调用重读），`lib/*.mjs` 与 `index.mjs` 的哈希与改前一致 ⇒ **不重启 dsh 就吃到了新脚本**。
 - **未观测**：宿主正在运行时 `dsh plugin add` 的失败形态（`os error 32` 是**预期**，脚本会如实报告并不中断后续步骤）；量法：宿主在跑时执行 `install.ps1`，看第 4c 步是否如实报告且没有中断；要真正走到 `dsh plugin add`，先 `dsh plugin --profile <profile> remove adg-notify`（宿主在跑时有风险，何时做由人决定）。
 - **未观测**：非 Windows 平台的形状；量法：在非 Windows 机器上跑 `node --test test`，看非 win32 那条用例通过、其余按预期失败。本模块的定位就是 Windows 通知，**不打算**为其他平台实现降级。
-- **未观测**：并发投递（连续两条通知 Windows 会不会吞掉一条、通知中心里是一条还是两条）；量法：`node cli.mjs send --message a && node cli.mjs send --message b`，看通知中心。
+- **已观测（2026-10-08，**独立复核子代理**在本机测得，此处转记它的读数、不是我本人复现）**：**并发投递不会互相吞掉** —— 两次 `send` 间隔 ~1.1s（两条都 exit 0）→ 通知中心里两条，9.16s 后仍是两条，屏幕上同时两条横幅、各带一枚 `Dismiss` 按钮。⇒ 原先这条「未观测」就此转成已观测。
+- **已观测（同上，独立复核所得）**：`Dismiss` 是**真的系统 action**，不是装饰 —— UIA 树上读到 `Button | VerbButton | Dismiss`，对它 `InvokePattern.Invoke()` 之后通知中心计数从 1 → 0（通知被系统拿走）。
+- **已观测（同上，独立复核所得）**：**设置链路端到端**（它写的是"真实设置文件 + 真实消费链，验完已删除还原"；复核后我也确认两处候选落点都不存在该文件）—— 文件不存在 ⇒ 出厂默认 `notifyPersist: true` ⇒ `disappearAfterMs = 0` ⇒ 常驻（8.8s / 43.2s / 71.8s 仍在、带按钮）；文件写 `{"notifyPersist":false}` ⇒ `8000` ⇒ 5s 仍在、12s / 20s 已无。⇒ 「设置页那一跳」在真机上闭环。
+- **未观测**：用**鼠标像素级点击**那枚 `Dismiss` 按钮（本机指针注入不生效：`move` 之后光标没动 —— 与 `desktop/` 的既有口径一致，见它的未观测项）；量法：完全权限会话里 `click` 后应得 `CURSOR_LANDED=true` 且通知消失。**但「按钮可关」这一半有 [人] 证据**：用户本人用真鼠标点过那枚按钮，点了通知就消失（同一台机器、同一条常驻通知）。
 
 ## 交付前的最小闭环
 

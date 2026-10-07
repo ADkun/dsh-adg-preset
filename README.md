@@ -9,7 +9,7 @@
 - **`desktop/`** —— 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附桥 `scripts/bridge.ps1`）：截屏 / 窗口与 UIA 枚举 / `SendInput` 合成输入 / 元素自带 UIA pattern 的语义操作 / 动作前后的可观测差异复核，是**拿到桌面工具链的那次委派**那条"真能点按钮"的路；**Windows 专用**，而且**要驱动普通用户窗口，调用它的那一次会话必须是完全权限** —— 受限会话的 Low 完整性级别会被 UIPI 拦下、且是**静默**丢事件，所以注入类命令只认可观测差异（`CHANGED=` / `CURSOR_LANDED=`）、不认 `SendInput` 的返回值；
 - **`notify/`** —— 仓库内部第一方子插件 `adg-notify`，注册工具 `notify_user`（Windows 桌面提醒，**单向不阻塞**；默认存活时间 **0 ＝ 常驻**，toast 走 `scenario="reminder"`，不再自己消失）；
 - **`permission/`** —— 仓库内部第一方子插件 `adg-permission`，注册工具 `set_child_permission`：让调度者把**在权限切换之前**派出去、还停在旧文件权限的子代理改到新权限（只有调度者能用；两条守卫 —— 只能改自己派出去的、且**不得超过调用方自己** —— 写在代码里，不是提示）；
-- **`settings/`** —— 仓库内部第一方子插件 `adg-settings`：在「设置」里注册一页 **Adg 设置**，把 `adg-notify` 的**三项行为**做成可配置项（**通知默认标题** / **响提示音** / **通知常驻**），改动写进 `${DSH_HOME:-~/.dsh}/adg-settings.json`，**保存后立即生效、不用重启**（没有这项设置时通知走出厂默认）。它同时是一套**登记表驱动的框架**：加一项配置只需在 `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记 + 在 `settings/client.js` 的 DICT 补两条文案（zh/en），宿主与客户端逻辑都不用改 —— 详见下方「设置页（Adg 设置）」一节；
+- **`settings/`** —— 仓库内部第一方子插件 `adg-settings`：在「设置」里注册一页 **Adg 设置**，把 `adg-notify` 的**三项行为**做成可配置项（**通知默认标题** / **响提示音** / **通知常驻**），改动写进 `${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`（优先当前 profile 目录；本机实际就是 `<profile>\adg-settings.json`），**保存后立即生效、不用重启**（没有这项设置时通知走出厂默认）。它同时是一套**登记表驱动的框架**：加一项配置只需在 `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记 + 在 `settings/client.js` 的 DICT 补两条文案（zh/en），宿主与客户端逻辑都不用改 —— 详见下方「设置页（Adg 设置）」一节；
 - **`skills/`** —— 六份技能，装到 `${DSH_HOME:-~/.dsh}/skills/`，按**渐进式披露**承载可复用经验（用法：调度者把技能文件的**绝对路径**写进委派 prompt，要子代理先 `read` 再动手）：
   - `adg-delegation` —— 给**调度智能体**看：能力带 → 建议工具面 / 建议 persona 要点 / 边界的映射表，以及怎么给 `tools` 与 `persona`、一跳可达、材料中转、验收判定；
   - `adg-browser-use` —— 给**拿到浏览器工具链的子代理**看：`cli.mjs` 用法、默认无头与换模式的不变量、登录墙人工协议、profile 是资产、标签页纪律、**必须完全权限**与三家浏览器的失败签名去哪看；
@@ -235,9 +235,9 @@ node tools/check-preset.mjs
 |---|---|---|
 | 通知默认标题 | `DSH 通知` | 换成你认得出的标题；某一次 `notify_user` 自己带了 `title` 时按那次的来 |
 | 响提示音 | 开 | 关掉之后静音弹出（那一次调用显式传 `silent` 也照旧） |
-| 通知常驻 | 开 | 关掉之后通知 **8 秒**后从通知中心消失；开着＝常驻，直到你处理 |
+| 通知常驻 | 开 | 关掉之后按 **8 秒**存活投递（会写 `ExpirationTime`）；实测屏幕上在**约 17 秒内**消失（系统回收有粒度，见 `notify/testing-guide.md`）；开着＝常驻，直到你处理 |
 
-**存在哪**：`${DSH_HOME:-~/.dsh}/adg-settings.json`（原子写；删掉它就回到出厂默认）。页面「当前生效」区逐项标出**这个值从哪来** —— 设置文件 / 插件 Config（行 `config:` 兜底）/ 内置默认，三层优先。**保存即生效、不用重启**：消费方每次调用都重新读那份文件。
+**存在哪**：`${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`（**优先 profile 目录**；本机实际就是 `<profile>\adg-settings.json`，不是用户根那份。原子写；删掉它就回到出厂默认）。页面「当前生效」区逐项标出**这个值从哪来** —— 设置文件 / 插件 Config（行 `config:` 兜底）/ 内置默认，三层优先。**保存即生效、不用重启**：消费方每次调用都重新读那份文件。
 
 **它同时是一套框架**：加一项配置 = 在 `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记（`key` / `kind` / `default` / 界 / `group` / `labelKey` / `hintKey` / `consumer`）+ 在 `settings/client.js` 的 `DICT` 补 zh / en 两条文案 —— 宿主半边、页面组件、路由与校验都不用动（客户端从 `fields[]` 拿界，不自己定义界）。**新配置项必须先问用户**：只有用户点名要的项才进 `FIELDS`；`adg-notify` 的 `appId` / `timeoutMs` / `scriptPath` / `powerShellPath` 这类**技术类键刻意不进页面**（本机路径或排错旋钮，暴露出来只会让人改坏）。要给某一项接上真正的消费方，先读 `settings/AGENTS.md` 与 `settings/design.md` 的「加一项配置的 5 步」。
 
@@ -259,7 +259,7 @@ node tools/check-preset.mjs
 | 装的时候 `pnpm` 报文件被占用 | dsh 正在运行。要真正装/换依赖先关掉 dsh；脚本会如实报告并继续 |
 | `install.ps1` 在 Windows PowerShell 5.1 上直接解析失败 | 检查文件前三个字节是否仍是 `EF BB BF`：这个脚本**必须保留 UTF-8 BOM**，没有 BOM 时 5.1 会按系统 ANSI 代码页读它、中文变乱码 |
 | 设置里没有「Adg 设置」这一页 | 那个 profile 没装 `adg-settings` 子插件，或者装完没重启 dsh（插件是挂载期注册的）。重跑 `install.*`，读回时确认 `adg-settings` 三格齐（`node_modules` 真目录 + `dependencies` + `dsh.profile.bundles`）；重启后它出现在设置左栏 |
-| 在设置页里改了通知三项，通知没变 | 三处按顺序看：①页面上「当前生效」区每项的来源是「设置文件 / 插件 Config / 内置默认」—— 写盘成功后再看它是否变成「设置文件」；②消费方是 `adg-notify`，它在**下一次 `notify_user` 调用**时才读 `<DSH_HOME>/adg-settings.json`（不用重启，但也不会回头改已经弹出来的那条）；③那一次调用自己带了 `title` / `silent` 参数就会压过设置页 |
+| 在设置页里改了通知三项，通知没变 | 三处按顺序看：①页面上「当前生效」区每项的来源是「设置文件 / 插件 Config / 内置默认」—— 写盘成功后再看它是否变成「设置文件」；②消费方是 `adg-notify`，它在**下一次 `notify_user` 调用**时才读设置文件（`${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`，本机在 profile 目录下）（不用重启，但也不会回头改已经弹出来的那条）；③那一次调用自己带了 `title` / `silent` 参数就会压过设置页 |
 | 设置页一直显示「加载失败」 | 宿主半边没挂上：先确认那个 profile 的 `adg-settings` 三格齐、且重启过 dsh（`/api/adg-settings/settings` 是同源路由，另一个 profile 装没装不影响这一个） |
 | 想知道某个结论"量过没有" | 先看本文末尾的「未观测」一节与各模块的 `**未观测**：` 条目；都没有的就是还没量过，别当成实测 |
 

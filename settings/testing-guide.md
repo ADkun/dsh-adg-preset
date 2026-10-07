@@ -78,7 +78,7 @@ pwsh -File install.ps1            # 或 bash install.sh
 
 1. 打开「Adg 设置」→ 三项显示**出厂默认**（标题「DSH 通知」、声音开、常驻开），「当前生效」的每格写「来自内置默认」。
 2. 改标题 → 保存 → 提示「已保存」→ 刷新页面 → 值还在，来源变「设置文件」。
-3. 打开 `<DSH_HOME>/adg-settings.json` → 只有你保存过的键。
+3. 打开设置文件 → 只有你保存过的键。落点按 `settingsFile()` 的优先序：`${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json` —— 本机 `DSH_PROFILE_DIR` 是当前 profile 目录，所以文件**不在用户根**、在 `<profile>` 下。
 4. 让一个子代理弹一条**不带标题**的通知 → 标题就是你在页面上写的那句；关掉「响提示音」再弹一条 → 静音。
 5. 点「恢复默认」→ 文件消失 → 页面回到默认。
 6. 手工把文件改成 `{"notifySound":"nope","legacy":1}` → 刷新页面 → 不崩，值回落，页面提示"有认不得的键 / 有不合法的值被忽略"。

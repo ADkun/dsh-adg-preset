@@ -34,7 +34,7 @@
 ### 2.2 三层优先级
 
 ```text
-stored（<用户根>/adg-settings.json）  >  configured（cordis.patch.yml 的 config 块）  >  default（内置）
+stored（<DSH_PROFILE_DIR | DSH_HOME | ~/.dsh>/adg-settings.json，见 2.3）  >  configured（cordis.patch.yml 的 config 块）  >  default（内置）
 ```
 
 `buildEffective()` 逐键取第一层有值的，并把**每一格的值来自哪一层**记成 `origin[key] ∈ 'stored' | 'configured' | 'default'`。页面把 `origin` 显示出来（「设置文件 / 插件配置 / 内置默认」），这样"我保存了怎么没变"和"我以为出厂是关的"这两种疑问都能当场自答。
@@ -43,7 +43,7 @@ stored（<用户根>/adg-settings.json）  >  configured（cordis.patch.yml 的 
 
 ### 2.3 设置文件
 
-- 落点：`<DSH_PROFILE_DIR> | <DSH_HOME> | <homedir()>/.dsh` + `/adg-settings.json`（`settingsFile()`）。
+- 落点：`<DSH_PROFILE_DIR> | <DSH_HOME> | <homedir()>/.dsh` + `/adg-settings.json`（`settingsFile()`）—— **优先 `DSH_PROFILE_DIR`**：本机宿主进程里它就是当前 profile 目录（`C:\Users\adkun\.dsh\profiles\web`）⇒ 真实落点是 `<profile>\adg-settings.json`，**不是**用户根那份。
 - 形状：一个 JSON 对象，逐键存值（`{"notifyTitle":"…","notifySound":false}`）。**写进去的只有页面认识的键**。
 - 写：`mkdirSync(recursive)` → 写 `${file}.tmp`（`mode 0o600`）→ `renameSync`（原子替换）。读不出来（不存在 / 不是 JSON / 不是对象）= 「还没保存过」，不是错误。
 
@@ -102,7 +102,7 @@ notify/lib/user-settings.mjs:
   "unknown":    [ ],          // 文件里有、登记表里没有的键（只报告，不删）
   "dropped":    [ ],          // 文件里有、但值不合法而被丢掉的键
   "fields":     [ /* describeFields()：客户端渲染与校验的唯一来源 */ ],
-  "file":       "C:\\Users\\<user>\\.dsh\\adg-settings.json"
+  "file":       "C:\\Users\\<user>\\.dsh\\profiles\\web\\adg-settings.json"   // 优先 DSH_PROFILE_DIR ⇒ 本机真实形状就是 <profile> 目录下这一份
 }
 ```
 
