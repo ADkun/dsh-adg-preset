@@ -99,7 +99,7 @@ export const ACTION_CRITERIA = Object.freeze({
  * 以及 `testing-guide.md` 的漏报面条目**三处口径必须一致**。
  */
 const ATTR_BLIND =
-  '本判据**看不见**页面只改元素属性 / `class` / `style` 的效果（判据域不含这三样）：这类动作**只要不改到 `body.innerText`**（`display` / `visibility` 那类把文本带进 / 带出正文的改动除外）就必然读成"没有差异"（真机 A80 实测：`click #attr` ⇒ `CHANGED=false`，而回读 `data-hit` 从 `0` 变 `1`）——要证明它生效，请自己用 `--js` 断言表达式或 `eval` 回读。';
+  '本判据**不含属性 / `class` / `style` 这几个字段本身**：只有"只改它们、而且正文与其余各类都不动"时才必然读成"没有差异"；这些改动**一旦波及任何可比字段**（正文 `innerText`、目标元素的存在性 / 可见性 / 禁用 / 只读、`value` / `checked` / `selectedIndex`、`url` / `title` / `scroll` / `active` / `tabs`），判据**照样看得见**（真机实测：`display:none → block` 与 `visibility:hidden → visible` 都 ⇒ `CHANGED=true`；反过来 A80 的 `click #attr` ⇒ `CHANGED=false`，而回读 `data-hit` 从 `0` 变 `1`）——所以别只盯着这一个 `false`：要证明它生效，请自己用 `--js` 断言表达式或 `eval` 回读你要的那个属性 / 样式。';
 
 export const INVISIBLE_TAIL = Object.freeze({
   click:
@@ -119,7 +119,7 @@ export const INVISIBLE_TAIL = Object.freeze({
     ' ' +
     ATTR_BLIND,
   hover:
-    '页面只做了纯 CSS `:hover` 的**样式**变化（判据域不含样式）—— 但要分两族：改到 `display` / `visibility` 这类**会改动 `body.innerText` 的展开**（下拉 / 折叠 / 带文本的浮层）判据**看得见**（真机实测：`.r6card:hover .r6open { display: block }` ⇒ `CHANGED=true`、`REASON=可观测差异：dom / elemtext`）；只有不改 `innerText` 的纯视觉属性（配色 / 边框 / 光标 / 阴影 / `opacity`）才必然读成"没有差异"（真机实测：`opacity` 从 `0` 变 `1` ⇒ `CHANGED=false`，而回读 `fadeOpacity` 从 `"0"` 变 `"1"`）。另外：只改了 JS 变量、发起了网络请求、或页面反应晚于 --settle（默认 150ms）也一样看不出来 —— 要证明它生效，请自己用 `eval` 回读（`getComputedStyle` / `offsetParent`）。' +
+    '页面只做了纯 CSS `:hover` 的**样式**变化：判据的边界**不是"样式 vs 非样式"，而是"这次变化有没有落在可比字段上"** —— 改到 `display` / `visibility` 这类**会改动 `body.innerText` 的展开**（下拉 / 折叠 / 带文本的浮层）判据**看得见**（真机实测：`.r6card:hover .r6open { display: block }` ⇒ `CHANGED=true`、`REASON=可观测差异：dom / elemtext`；`.r7card:hover .vis { visibility: visible }` ⇒ `CHANGED=true`、`dom=8b39379a/59 → 4e0b3c2a/69`、`body.innerText` 35 → 39 字节）；只有不改 `innerText` 的纯视觉属性（配色 / 边框 / 光标 / 阴影 / `opacity`）才必然读成"没有差异"（真机实测：`opacity` 从 `0` 变 `1` ⇒ `CHANGED=false`，而回读 `fadeOpacity` 从 `"0"` 变 `"1"`）。另外：只改了 JS 变量、发起了网络请求、或页面反应晚于 --settle（默认 150ms）也一样看不出来 —— 要证明它生效，请自己用 `eval` 回读（`getComputedStyle` 取 `visibility` / `display`，或 `offsetParent` 判 `display:none`）。' +
     ' ' +
     ATTR_BLIND,
 });
