@@ -129,9 +129,9 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 
 | A102 | `hover` | 命令表里有它、被登记成动作命令、开关面与 `click` 同款（认识 `--selector` / `--force` / `--settle` 与三条选页路，不认 `--text` / `--value`） | I12 / I17 | [机检] |
 | A103 | `hover` | 只发一次 `mouseMoved`，且参数是**显式 `buttons: 0`**（`DISPATCHED=1`、没有 `button` 字段 ＝ 不按任何键）+ 前后比对；几何 / 命中自检（`HIT_IS_TARGET` 三态）与 `click` 同口径；并且 `click` 的事件序列**未被改动**（仍是 pressed + released 两次） | I13 / I14 / I16 | [机检] |
-| A104 | `hover` | 被遮挡时默认**不发事件**（用法错 2）、`--force` 才照原样发；不可见 / 视口外 / 没匹配到 / 选择器非法四种都拦在发事件之前（**真机实测**：`display:none` 的元素 ⇒ 退出码 1、`ERROR=hover：元素存在但没有可悬停的区域…`、页面自己的计数器不变）；命中读数缺失（页面把 `elementFromPoint` 覆盖成 `() => null`）⇒ `HIT=(无读数)` / `HIT_IS_TARGET=unknown` + 一句"缺测不许读成'指针进到了目标上'"的 `WARN=`，**按原样发**（真机实测与 `click` 同款：`click` / `click --force` 都 `DISPATCHED=2`、`hover` `DISPATCHED=1`，两者退出码都是 0；不对称的理由见 `design.md` 的残余一节） | I16 / I14 | [机检] + [真机] |
+| A104 | `hover` | 被遮挡时默认**不发事件**（用法错 2）、`--force` 才照原样发（**真机实测**：目标 `#r6btn` 被绝对定位的 `#r6cover` 盖住时，`hover` 默认 ⇒ `HIT=div#r6cover` / `HIT_IS_TARGET=false` ＋ `WARN=指针落点上最上面的元素不是目标（命中的是 div#r6cover）…默认不发事件（要照原样发加 --force）` ＋ `ERROR=…默认不发事件，加 --force 照原样发`、退出码 **2**、没有 `DISPATCHED=` 行、`#r6btn` 上的计数器不变；`--force` 才 `DISPATCHED=1`、退出码 0，`HIT_AFTER=div#r6cover` / `HIT_AFTER_IS_TARGET=false` —— **同页 `click` 同款**：默认退出码 2、`--force` 才 `DISPATCHED=2`，两次都只有盖层收到事件，`#r6btn` 上的计数器 `b_down` / `b_up` / `b_click` 始终 `0`）；不可见 / 视口外 / 没匹配到 / 选择器非法四种都拦在发事件之前（**真机实测**：`display:none` 的元素 ⇒ 退出码 1、`ERROR=hover：元素存在但没有可悬停的区域…`、页面自己的计数器不变）；命中读数缺失（页面把 `elementFromPoint` 覆盖成 `() => null`）⇒ `HIT=(无读数)` / `HIT_IS_TARGET=unknown` + 一句"缺测不许读成'指针进到了目标上'"的 `WARN=`，**按原样发**（真机实测与 `click` 同款：`click` / `click --force` 都 `DISPATCHED=2`、`hover` `DISPATCHED=1`，两者退出码都是 0；不对称的理由见 `design.md` 的残余一节） | I16 / I14 | [机检] + [真机] |
 
-| A105 | `hover`（真机闭环，无头） | 本机自包含 fixture（临时 profile + 独立端口 9444 上的本地 HTML，复刻「父项 `mouseenter` → 子容器从 `display:none` 变 `block`、子项里是 `<a href>`」）：**反例**先 `eval` 回读子容器 `display=none` / `offsetParent=null` / `rect=[0,0]`、`body.innerText` 不含子项文本；`hover --selector "#hmenu"` 给 `DISPATCHED=1`、`HIT_IS_TARGET=true`、`CHANGED=true` ＋ `REASON=可观测差异：dom / elemtext（共 4 个字段）`、退出码 0；**正例**同一 `eval` 回读翻成 `display=block` / `offsetParent=BODY` / `rect=[74,40]`、`innerText` 里出现子项文本，且能从子项读到 `href`；再 `hover` 另一个没有监听器的父项 ⇒ 真实 `mouseleave` 生效（子容器回到 `display:none`、`hits` 从 `MOUSEENTER=1 MOUSELEAVE=0` 变 `MOUSEENTER=1 MOUSELEAVE=1`）。**"指针真的进去了"的唯一证据是页面自己的事件计数器**（`HIT_AFTER` / `HIT_AFTER_IS_TARGET` 不作此证：`HIT_AFTER` 是动作之后按**新箱子中心**重新解析的、`HIT_AFTER_IS_TARGET=true` 只因 `el.contains(h)`）。同一件事的另一组读数（`elementFromPoint` 被页面覆盖成 `() => null` 的 fixture，在 `#hsub` 上挂只加数的 `mouseenter` 监听器）：`#hsub` 是 `display:none` 时 `hover` 被闸门拦下 ⇒ 计数 `0`、退出码 1；改成可见后同一条命令 ⇒ 计数 `1`、`DISPATCHED=1`（`HIT=(无读数)` / `HIT_IS_TARGET=unknown` 时结论由计数器给出） | I14 / `hover` 实现口径 | [真机]（2026-10-10 本机实测；逐条命令与原文见本节末的「交付前的最小闭环」） |
+| A105 | `hover`（真机闭环，无头） | 本机自包含 fixture（`%TEMP%\adg-r6\r6.html`，临时 profile + 独立端口 9445 上的本地 HTML，复刻「父项 `mouseenter` → 子容器从内联 `display:none` 变 `block`、子项里是 `<a href>`」）：**反例**先 `eval` 回读子容器 `subDisplay="none"` / `subOffsetParent="null"` / `subRect=[0,0]` / `hasJoin=false`（`body.innerText` 里没有子项文本）；`hover --selector "#r6menu"` 给 `HIT=div#r6menu.r6item`、`HIT_IS_TARGET=true`、`DISPATCHED=1`、`BEFORE … dom=863f192b/86` → `AFTER … dom=4b4f6485/99`、`CHANGED=true` ＋ `REASON=可观测差异：dom / elemtext（共 4 个字段）`、退出码 0；**正例**同一 `eval` 回读翻成 `subDisplay="block"` / `subOffsetParent="[object HTMLBodyElement]"` / `subRect=[1462,21]` / `hasJoin=true`，且 `eval` 从子项读到 `href=https://example.invalid/r6/col26/list`（`c_enter` 0→1、`c_leave` 仍 0）。**"指针真的进去了"的唯一证据是页面自己的事件计数器**（`HIT_AFTER` / `HIT_AFTER_IS_TARGET` 不作此证：`HIT_AFTER` 是动作之后按**新箱子中心**重新解析的、`HIT_AFTER_IS_TARGET=true` 只因 `el.contains(h)`；计数器由 fixture 自己的 `<script>` 挂监听器、**只把次数写进 `window.__c`、不写进任何 DOM 文本** —— 否则那次写入本身就会改 `body.innerText`，把纯样式族的读数污染成 `CHANGED=true`）。同一件事的另一组读数（在 `#r6sub` 上挂只加数的 `mouseenter` ⇒ `window.__c.sub_enter`）：`#r6sub` 还是 `display:none` 时 `hover` 被闸门拦下 ⇒ `VISIBLE=false` / `BOX=0,0,0,0` / `POINT=(无)` / `ERROR=hover：元素存在但没有可悬停的区域（display:none / visibility:hidden / opacity:0 / 零尺寸）：#r6sub —— 真实用户的指针也进不到它上面`、退出码 **1**、`sub_enter` 仍是 `0`；先 `hover` 父项把它展成 `block` 之后跑同一条命令 ⇒ `sub_enter` 变 `1`、`DISPATCHED=1`、退出码 0（`HIT=(无读数)` / `HIT_IS_TARGET=unknown` 时结论同样由计数器给出） | I14 / `hover` 实现口径 | [真机]（2026-10-10 本机实测；逐条命令与原文见本节末的「交付前的最小闭环」） |
 
 **没有自动化判据的部分**：用例总表覆盖「工具做了什么」，覆盖不了「人怎么用它」（**子代理**是否照技能与委派 prompt 走、登录门要不要人工）—— 那部分在「人工 review 项」一节，附量法。
 
@@ -282,7 +282,7 @@ Select-String -Path skills\adg-browser-use\SKILL.md -Pattern 'cli\.mjs' -Encodin
 - **`select` 的原生下拉 UI**：**未观测**：本命令走 DOM 赋值 + 派发事件，**没有**模拟点开原生下拉；只看 `isTrusted` 的页面会显示 `CHANGED=false`，这一类的实际占比没量过。量法：找一个用 `isTrusted` 判选的页面，跑 `select` 看读数与页面自身状态是否分离。
 - **"页面主动撒谎 / 主动回滚"这一族**：**已观测两例**（第四轮）：① 页面连回读一起伪造（谎报选项表 + `value` + `selectedIndex`）⇒ 单测红而 **CLI 端到端 exit 0**（M11）；② `type` 的回读表达式被改坏 ⇒ 单测全绿、真机 fail-closed 成 `TYPE_APPLIED=unknown`（M12）。**也已观测**受控组件把选择回滚的场景：`select` 现在报**退出码 1** + `SELECT_APPLIED=false`（A97 的 `#ctrl` 一条；这是本命令的副作用 —— 静默成功换成了确定的失败读数）。**未观测**：真实站点上这三类的占比（框架把 `value` 归位 / 只在 JS 变量里记状态 / 组件库自己重写 `select` 结构），以及"受控组件占比高不高、调用方会不会把退出码 1 误读成工具坏了"。量法：换成 React / Vue 的本地 fixture（受控 `<select>`、受控 `<input>`）各跑一遍 `select` / `type`，把"命令退出码与自证读数"和"页面自身状态"并排记下来；页面伪造回读那一类只能靠"页面的独立证据"（例如页面把状态同时写进 `localStorage` 或另一次 `eval` 读回别的引用）来对照。
 
-- **`hover` 的判据可见性（纯 CSS `:hover` 那一族）**：**已观测**（真机，零 JS 的独立 fixture，三族并排量过）：① `.item:hover .clist { display: block }` ⇒ `CHANGED=true`、`dom=413cbfd5/6 → def1f051/14`、`REASON=可观测差异：dom / elemtext`（`display:none → block` 把子元素文本带进了 `body.innerText` ⇒ 判据**看得见**；回读 `aRect` 从 `[0,0]` 变 `[38,19]`、`body.innerText` 从 2 字节变 6 字节）；② `.item:hover .sub { opacity: 1 }` ⇒ `CHANGED=false`（两侧 `dom=def1f051/14`，而回读 `subOpacity` 从 `"0"` 变 `"1"`）—— 真·假阴性；③ `.item:hover { background / color }` ⇒ `CHANGED=false`（回读 `bg` 从 `rgb(238,238,255)` 变 `rgb(255,221,221)`）。**判据的边界是"这次变化有没有落在可比字段上"，不是"样式 vs 非样式"**（与 `design.md` 的残余一节同口径）。**仍未观测**：真实站点上这三族各占多少，以及这一族配合页面自己的 JS 反应时的读数。
+- **`hover` 的判据可见性（纯 CSS `:hover` 那一族）**：**已观测**（真机，本机自包含 fixture `%TEMP%\adg-r6\r6.html`，零 JS 的三族同页并排量过，每族都在指针还停在那里的那一刻 `eval` 回读）：① `.r6card:hover .r6open { display: block }` ⇒ `CHANGED=true`、`dom=863f192b/86 → f87bdc76/105`、`REASON=可观测差异：dom / elemtext`（`display:none → block` 把子元素文本带进了 `body.innerText` ⇒ 判据**看得见**；回读 `openDisplay` 从 `"none"` 变 `"block"`、`openRect` 从 `[0,0]` 变 `[1462,21]`、`body.innerText` 从 46 字节变 59 字节）；② `.r6card2:hover .r6fade { opacity: 1 }` ⇒ `CHANGED=false`（两侧同为 `dom=863f192b/86`，而回读 `fadeOpacity` 从 `"0"` 变 `"1"`）—— 真·假阴性；③ `.r6card3:hover { background-color: rgb(255,221,221) }` ⇒ `CHANGED=false`（两侧同哈希，而回读 `card3Bg` 从 `"rgba(0, 0, 0, 0)"` 变 `"rgb(255, 221, 221)"`）。**判据的边界是"这次变化有没有落在可比字段上"，不是"样式 vs 非样式"**（与 `design.md` 的残余一节同口径）。**量法上的一个坑（第一版 fixture 踩过）**：别把页面的计数器写进 DOM 文本（`#hits.textContent = …`）—— 那次写入本身会改 `body.innerText`，把②③两族的读数污染成 `CHANGED=true`；计数器只写进 `window.__c`，用独立 `eval` 回读。**仍未观测**：真实站点上这三族各占多少，以及这一族配合页面自己的 JS 反应时的读数。
 - **变异自证基线随新增用例重量**：**已观测**（`hover` 的 6 条用例进来之后，在 117 条树上复测改名后基线）：M13 ⇒ exit=1、`117 / 115 / 2`（红 `A100 命令表与开关清单对齐` + `A100 health 的开关面`，与 111 条时红的两条相同）；M14 ⇒ exit=1、`117 / 116 / 1`（红 `A101 truncateUtf8 截在字符边界上`，同上）⇒ **新增用例没有改变任何变异体的红条数，本节基线数字照修改后的口径记（117）**。
 
 ## 交付前的最小闭环
@@ -323,8 +323,14 @@ node cli.mjs text --url "file:///<大页 fixture 绝对路径>" --max-bytes 50 -
 #   #attr（click 只 setAttribute 不改文本 —— A80 的判据域边界用）、
 #   #kd（只有 keydown 监听器，把触发次数写进 #kdout —— A81 的逐键面用）、
 #   #ctrl（**受控** select：change 监听把 this.value 归位 —— A94 / A97 的回滚用）、
-#   #hmenu（父项：`mouseenter` 监听把 #hsub 从 display:none 改成 block，`mouseleave` 改回 —— A105 的 hover 用；
-  #hsub 里放一个 `<a id="hlink" href="...">`，用来验证"展开之后能从子项拿到 href"）、
+#   #r6menu（父项：`mouseenter` 监听把 #r6sub 从**内联** display:none 改成 block，`mouseleave` 改回 —— A105 的 hover 用；
+#   #r6sub 里放一个 `<a id="r6link" href="...">`，用来验证"展开之后能从子项拿到 href"）、
+#   #r6card / #r6card2 / #r6card3（零 JS 的三族纯 CSS `:hover`：`.r6card:hover .r6open { display: block }`、
+#   `.r6card2:hover .r6fade { opacity: 1 }`、`.r6card3:hover { background-color: rgb(255, 221, 221) }` ——
+#   「判据看得见什么」那三组读数的实测来源）、
+#   #r6btn 被 #r6cover 绝对定位盖住（A104 的遮挡那一组用）。
+#   **所有 `mouseenter` / `mouseleave` / `mousedown` 计数只写进 `window.__c`，不许写进任何 DOM 文本**
+#   （写进 DOM 会让那次写入本身改掉 `body.innerText`，把纯视觉属性那两族的读数污染成 `CHANGED=true`）、
   #deleg（在 document 上注册 change 委托监听，把收到的值写进它的文本 —— A88 的冒泡用）、
 #   #never（不存在，超时用）。全部元素都在文档流里可见，不需要滚动。
 # 读页命令（eval / text / shot）的 --url 是"要读的完整地址"，动作命令的 --url 是子串命中 ——
@@ -337,12 +343,12 @@ node cli.mjs click --selector "#covered" --force --port 9444 --match adg-browser
 node cli.mjs type --selector "#q" --text "你好 adg" --port 9444 --match adg-browser-fixture   # A70：CHANGED=true（value 那类）
 node cli.mjs select --selector "#city" --value sh --port 9444 --match adg-browser-fixture     # A70：CHANGED=true（selected/value）
 node cli.mjs click --selector "#later" --port 9444 --match adg-browser-fixture    # A75：页面 300ms 后才变 ⇒ CHANGED=false（默认 150ms 的取样窗口不够）
-# —— hover（A105）：反例（先不 hover）→ hover → 正例，用 eval 独立回读子容器三读数 ——
-node cli.mjs eval --file "$env:TEMP\adg-hover-fixture\probe.js" --port 9444 --match fixture.html   # 反例：display=none / offsetParent=null / rect=[0,0]
-node cli.mjs hover --selector "#hmenu" --port 9444 --match fixture.html            # A105：DISPATCHED=1 + HIT_IS_TARGET=true + CHANGED=true（REASON：dom / elemtext）
-node cli.mjs eval --file "$env:TEMP\adg-hover-fixture\probe.js" --port 9444 --match fixture.html   # 正例：display=block / offsetParent=BODY / rect=[74,40]
-node cli.mjs eval --js "document.querySelector('#hlink').href" --port 9444 --match fixture.html     # A105：展开之后能从子项拿到 href
-node cli.mjs hover --selector "#hplain" --port 9444 --match fixture.html           # 对照：真实 mouseleave 触发 ⇒ 子容器回到 display=none
+# —— hover（A105）：反例（先不 hover）→ hover → 正例，用 eval 独立回读子容器三读数；本组实测端口是 9445（其余动作面行用 9444）——
+node cli.mjs eval --file "$env:TEMP\adg-r6\probe.js" --port 9445 --match r6.html   # 反例：subDisplay=none / subOffsetParent=null / subRect=[0,0] / hasJoin=false
+node cli.mjs hover --selector "#r6menu" --port 9445 --match r6.html            # A105：DISPATCHED=1 + HIT_IS_TARGET=true + CHANGED=true（REASON：dom / elemtext；dom=863f192b/86 → 4b4f6485/99）
+node cli.mjs eval --file "$env:TEMP\adg-r6\probe.js" --port 9445 --match r6.html   # 正例：subDisplay=block / subOffsetParent=[object HTMLBodyElement] / subRect=[1462,21] / hasJoin=true（计数器 c_enter +1）
+node cli.mjs eval --js "document.querySelector('#r6link').href" --port 9445 --match r6.html     # A105：展开之后能从子项拿到 href ⇒ https://example.invalid/r6/col26/list
+node cli.mjs hover --selector "#r6card" --port 9445 --match r6.html            # 对照：指针离开父项 ⇒ 真实 mouseleave（c_leave +1）⇒ 子容器回到 subDisplay=none / subRect=[0,0]
 node cli.mjs wait-for --selector "#late" --visible --timeout 3000 --port 9444 --match adg-browser-fixture   # A75：WAIT=ok ⇒ 上一步其实生效了（A72 同此）
 node cli.mjs wait-for --selector "#never" --timeout 400 --interval 100 --port 9444 --match adg-browser-fixture   # A72：WAIT=timeout、退出码 1
 node cli.mjs click --selector "#go" --port 9444 --match fixture                   # A73：两页命中 ⇒ 用法错 2（先把 fixture 开成两页）

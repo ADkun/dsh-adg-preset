@@ -99,7 +99,7 @@ export const ACTION_CRITERIA = Object.freeze({
  * 以及 `testing-guide.md` 的漏报面条目**三处口径必须一致**。
  */
 const ATTR_BLIND =
-  '本判据**看不见**页面只改元素属性 / `class` / `style` 的效果（判据域不含这三样）：这类动作必然读成"没有差异"（真机 A80 实测：`click #attr` ⇒ `CHANGED=false`，而回读 `data-hit` 从 `0` 变 `1`）——要证明它生效，请自己用 `--js` 断言表达式或 `eval` 回读。';
+  '本判据**看不见**页面只改元素属性 / `class` / `style` 的效果（判据域不含这三样）：这类动作**只要不改到 `body.innerText`**（`display` / `visibility` 那类把文本带进 / 带出正文的改动除外）就必然读成"没有差异"（真机 A80 实测：`click #attr` ⇒ `CHANGED=false`，而回读 `data-hit` 从 `0` 变 `1`）——要证明它生效，请自己用 `--js` 断言表达式或 `eval` 回读。';
 
 export const INVISIBLE_TAIL = Object.freeze({
   click:
@@ -119,7 +119,7 @@ export const INVISIBLE_TAIL = Object.freeze({
     ' ' +
     ATTR_BLIND,
   hover:
-    '页面只做了纯 CSS `:hover` 的**样式**变化（改配色 / 边框 / 光标 / 阴影 —— 判据域不含样式）、只改了 JS 变量或发起了网络请求、或页面反应晚于 --settle（默认 150ms）—— 这类效果必然读成"没有差异"。' +
+    '页面只做了纯 CSS `:hover` 的**样式**变化（判据域不含样式）—— 但要分两族：改到 `display` / `visibility` 这类**会改动 `body.innerText` 的展开**（下拉 / 折叠 / 带文本的浮层）判据**看得见**（真机实测：`.r6card:hover .r6open { display: block }` ⇒ `CHANGED=true`、`REASON=可观测差异：dom / elemtext`）；只有不改 `innerText` 的纯视觉属性（配色 / 边框 / 光标 / 阴影 / `opacity`）才必然读成"没有差异"（真机实测：`opacity` 从 `0` 变 `1` ⇒ `CHANGED=false`，而回读 `fadeOpacity` 从 `"0"` 变 `"1"`）。另外：只改了 JS 变量、发起了网络请求、或页面反应晚于 --settle（默认 150ms）也一样看不出来 —— 要证明它生效，请自己用 `eval` 回读（`getComputedStyle` / `offsetParent`）。' +
     ' ' +
     ATTR_BLIND,
 });
