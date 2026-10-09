@@ -42,10 +42,12 @@ import {
   checkPageScope,
   clickSpec,
   hitScopeError,
+  hoverSpec,
   intOpt,
   matchHits,
   pageTarget,
   runClick,
+  runHover,
   runSelect,
   runType,
   runWaitFor,
@@ -70,6 +72,7 @@ const USAGE = `用法：node cli.mjs <命令> [选项]
   eval       在页面里求值（--js "<表达式>" 或 --file <脚本路径>）
   shot       截图（--out <png 路径> [--full]）
   click      点元素（--selector <css> [--force]）—— 用真实鼠标事件，命中自检见下
+  hover      把真实指针移到元素中心（--selector <css> [--force]）—— 靠 mouseenter 展开的下拉 / 菜单用它
   type       往输入框写字（--selector <css> --text <字符串> [--clear]）
   select     选 <select> 的某一项（--selector <css> --value <值>）
   wait-for   等条件成立（--selector <css> [--visible] | --url-match <子串> | --js "<表达式>"）
@@ -83,7 +86,7 @@ const USAGE = `用法：node cli.mjs <命令> [选项]
   --headed         有头模式：开一个真窗口，需要人工登录 / 过验证时才用
   --url <u>        launch/open 可重复（要打开的地址）；text/eval/shot 用它指定**要读的完整地址**
                    （同地址已有页就复用，没有就临时开一个、读完收走；要留着加 --keep）
-                   动作命令（click/type/select/wait-for）用它按地址**子串**命中来唯一化目标页 ——
+                   动作命令（click/hover/type/select/wait-for）用它按地址**子串**命中来唯一化目标页 ——
                    与 --match 是同一条路，都不要求完整地址；命中多页直接拒发
   --match <子串>   按 url / title 子串选页；close-tab 用它关掉所有匹配的页
   --tab <n>        按序号选页（0 起）；close-tab 用它关那一个
@@ -95,12 +98,12 @@ const USAGE = `用法：node cli.mjs <命令> [选项]
   --full           shot 截整页
   --keep           text/eval/shot --url 为读新地址而开的**临时标签**默认读完就关，加这个保留它
 
-动作选项（click / type / select / wait-for 共用）：
+动作选项（click / hover / type / select / wait-for 共用）：
   --selector <css>  要操作的元素（动作命令必给；wait-for 也可以只用它当条件）
   --text <字符串>   type 要写入的字（允许中文；空字符串会被拒 —— 区分不了"没生效"）
   --value <值>      select 要选中的 <option> 的 value（必须在选项里，否则拒发）
   --clear           type：先选中目标里的现有内容再写（等价于人先全选后输入）
-  --force           click：命中自检说"点在别的东西上"时仍然照原样发（默认拒发）
+  --force           click / hover：命中自检说"点在别的东西上"时仍然照原样发（默认拒发）
   --visible         wait-for：用 --selector 时要求元素可见（不只是存在于 DOM）
   --url-match <s>   wait-for：等地址里出现这个子串
   --js "<表达式>"   wait-for：等这个表达式为真（抛错当作"还没成立"）；eval 也用这个开关
@@ -570,18 +573,20 @@ async function main() {
     const spec =
       cmd === 'click'
         ? clickSpec(args)
-        : cmd === 'type'
-          ? typeSpec(args)
-          : cmd === 'select'
-            ? selectSpec(args)
-            : waitForSpec(args);
+        : cmd === 'hover'
+          ? hoverSpec(args)
+          : cmd === 'type'
+            ? typeSpec(args)
+            : cmd === 'select'
+              ? selectSpec(args)
+              : waitForSpec(args);
     await requireAlive(port);
     const session = await actionSession(port, args);
     try {
-      // 四条命令共用一套前后比对（I14）：`out` 就是 stdout，一行一个 KEY=value。
+      // 五条命令共用一套前后比对（I14）：`out` 就是 stdout，一行一个 KEY=value。
       // `listTabs` 让判据能看见"标签页有没有变"（点开新标签是 click 最常见的效果之一）；
       // 读不到只是 `tabs` 这一类缺测（⇒ 可能有 unknown），不会把命令搞失败。
-      await { click: runClick, type: runType, select: runSelect, 'wait-for': runWaitFor }[cmd]({
+      await { click: runClick, hover: runHover, type: runType, select: runSelect, 'wait-for': runWaitFor }[cmd]({
         session,
         spec,
         out: print,

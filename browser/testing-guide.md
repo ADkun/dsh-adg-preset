@@ -87,14 +87,14 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 | A60 | 判据层 | `changeVerdict` 三态：有差异 ⇒ `true`（唯一能正面证明生效的读数）；两侧都读到且都没变 ⇒ `false`；专属判据缺测（含**只在一侧**读得到）⇒ `unknown` 且**不许报 false** | I14 | [机检] |
 | A61 | 判据层 | `digestOf` 一行摘要（`BEFORE=` / `AFTER=` 打的就是它）；`stateExpr` 不给选择器时元素读数整段跳过（运行期不读，不是读成"不存在"）；`captureState` 读不到时把原始错误留在明面上 | I13 / I14 | [机检] |
 | A62 | 动作面 | 每条命令一份开关清单：用不上的开关报用法错、不许静默忽略；选页方式只能给一个、只接受一个 `--url` | I12 / I17 | [机检] |
-| A63 | 动作面 | 四条命令的用法错误面（含 `type --text ""` 被拒、`select` 值不在选项里、`wait-for` 条件三选一与"超时 / 间隔必须有"、`--js` 语法当场判） | I11 / I12 / I15 | [机检] |
+| A63 | 动作面 | 五条命令的用法错误面（含 `hover` 的 `--selector` 必给 / `--force` 是开关、`type --text ""` 被拒、`select` 值不在选项里、`wait-for` 条件三选一与"超时 / 间隔必须有"、`--js` 语法当场判） | I11 / I12 / I15 | [机检] |
 | A64 | `click` | 几何 + 命中自检 + 真实鼠标事件（`DISPATCHED=2`，不是合成事件）+ 前后比对 | I13 / I14 / I16 | [机检] |
 | A65 | `click` | 被遮挡时默认**不发事件**（用法错 2），`--force` 才照原样发并保留 `WARN=` | I16 | [机检] |
 | A66 | `click` | 不可见 / 视口外 / 没匹配到三种都拦在发事件之前；命中读数缺失（`elementFromPoint` 没结果）⇒ `unknown`，**不是**"点在目标上" | I16 / I14 | [机检] |
 | A67 | `type` | 聚焦成功 ⇒ 一次 `insertText`；焦点没落在目标上 ⇒ **一个字符都不发**；不可输入 / 禁用 / 只读先拦；`contenteditable` 走文本那一类判据 | I13 / I16 | [机检] |
 | A68 | `select` | 值在选项里 ⇒ 赋值 + 派发 `input`/`change`；不在选项里 ⇒ 拒绝（不猜）并报可用取值；非 `<select>` / 被禁用先拦 | I13 / I16 | [机检] |
 | A69 | `wait-for` | 首次轮询即满足 ⇒ `WAIT=ok` / `POLLS=1`；超时 ⇒ `WAIT=timeout` + 退出码 1（"没等到"的确定读数）；`--url-match` / `--js` 各自成行；探针失败 ⇒ `CHANGED=unknown` | I15 / I14 | [机检] |
-| A70 | 真机闭环（无头） | 四条动作命令各至少跑一次、逐步打 `CHANGED=` 原文；至少一次 `true`（页面真响应）与一次 `false`（只动了焦点 / 页面没反应） | I14 | [真机] |
+| A70 | 真机闭环（无头） | 五条动作命令各至少跑一次（含 `hover`）、逐步打 `CHANGED=` 原文；至少一次 `true`（页面真响应）与一次 `false`（只动了焦点 / 页面没反应） | I14 | [真机] |
 | A71 | 真机闭环（无头） | `click` 命中自检：命中别的元素时用法错 2 且**没有** `DISPATCHED=` 行；`--force` 照发后 `CHANGED=false` 且带 `WARN=` | I16 | [真机] |
 | A72 | 真机闭环（无头） | `wait-for` 满足 ⇒ `WAIT=ok`；等不存在的元素 ⇒ `WAIT=timeout` + 退出码 1 | I15 | [真机] |
 | A73 | 真机闭环（无头） | 两页命中同一个 `--match` ⇒ 动作命令用法错 2（**拒发**，不取第一页） | I17 | [真机] |
@@ -126,6 +126,12 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 | A99 | `health` | 一条命令给全 `NODE=`（node 可执行文件路径）/ `DSH_HOME=` / `PROFILE=` / `PROFILE_EXISTS=` / `PORT=` / `CHROME=` / `DEFAULT_MODE=` / `ALIVE=`（复用 `cdp.isAlive` 的**纯 HTTP** 探活）/ `PROXY_SET=` / `PROXY_SOURCE=`（那四个代理环境变量**是否存在**），退出码 0；**不报**真实 `MODE=`、**不报** `TABS=`；代理变量有值时只出现存在性、**值一次都不出现**；命令**不 spawn 浏览器、不建 websocket / CDP 会话、不落盘任何状态文件**。`[机检]` 那半钉的是**读数面与文字面**（每一行 `KEY=` 逐字在位、分支里没有 `spawn`、没有 `print(\`MODE=`/`print(\`TABS=`、只经 `envGet` 判存在），**读数本身**（本机 node 路径、Chrome 路径、`ALIVE` 真假、代理变量）只在真机上才取得出来 | I12 / design.md 的「对外接口」 | [机检] + [真机] |
 | A100 | `health` | 开关面：`health` 认识且只认识通用开关（`COMMON_FLAGS`）—— `--selector` 这类别的命令的开关必须被 `checkFlagScope` 判成用法错 2，不许静默忽略（`COMMAND_FLAGS` 里漏登记 `health` 会让这条命令在分发前就报"不认识命令"，同样退 2）。**漏登记的守卫**：`test/browser.test.mjs` 从 `USAGE` 命令表里逐行读命令名、逐个与 `COMMAND_FLAGS` 对齐 —— 既有那条泛化断言遍历的是 `COMMAND_FLAGS` 自己的键，漏登记它不会红 | I12 | [机检] |
 | A101 | `text --max-bytes` | 小上限下 `BYTES=` 等于真写出去的字节数、`FULL_BYTES=` 是正文原本的字节数、`TRUNCATED=true`；截断**只按 UTF-8 字符边界**（不切碎多字节字符 ⇒ 写出的字节数可以略小于上限，以 `BYTES=` 为准；**切点落在字符内部时退回到它前面那个完整字符之后**，这是 `lib/target.mjs` 的 `truncateUtf8` 的纯函数行为，`[机检]` 钉住）；不带 `--max-bytes` 时 `TRUNCATED=false` 且 `BYTES=FULL_BYTES`（**旧语义逐字未变**：`BYTES=` 仍是这次写出去的正文 UTF-8 字节数）；`--max-bytes` 非整数 / 负数 / 超上限 / 缺值 ⇒ 用法错 2；**与 `--out` 合用 ⇒ 用法错 2**（`--out` 一律写完整正文，两个体积读数不许同时出现） | I11 / design.md 的「对外接口」 | [机检] + [真机] |
+
+| A102 | `hover` | 命令表里有它、被登记成动作命令、开关面与 `click` 同款（认识 `--selector` / `--force` / `--settle` 与三条选页路，不认 `--text` / `--value`） | I12 / I17 | [机检] |
+| A103 | `hover` | 只发一次 `mouseMoved`，且参数是**显式 `buttons: 0`**（`DISPATCHED=1`、没有 `button` 字段 ＝ 不按任何键）+ 前后比对；几何 / 命中自检（`HIT_IS_TARGET` 三态）与 `click` 同口径；并且 `click` 的事件序列**未被改动**（仍是 pressed + released 两次） | I13 / I14 / I16 | [机检] |
+| A104 | `hover` | 被遮挡时默认**不发事件**（用法错 2）、`--force` 才照原样发；不可见 / 视口外 / 没匹配到 / 选择器非法四种都拦在发事件之前（**真机实测**：`display:none` 的元素 ⇒ 退出码 1、`ERROR=hover：元素存在但没有可悬停的区域…`、页面自己的计数器不变）；命中读数缺失（页面把 `elementFromPoint` 覆盖成 `() => null`）⇒ `HIT=(无读数)` / `HIT_IS_TARGET=unknown` + 一句"缺测不许读成'指针进到了目标上'"的 `WARN=`，**按原样发**（真机实测与 `click` 同款：`click` / `click --force` 都 `DISPATCHED=2`、`hover` `DISPATCHED=1`，两者退出码都是 0；不对称的理由见 `design.md` 的残余一节） | I16 / I14 | [机检] + [真机] |
+
+| A105 | `hover`（真机闭环，无头） | 本机自包含 fixture（临时 profile + 独立端口 9444 上的本地 HTML，复刻「父项 `mouseenter` → 子容器从 `display:none` 变 `block`、子项里是 `<a href>`」）：**反例**先 `eval` 回读子容器 `display=none` / `offsetParent=null` / `rect=[0,0]`、`body.innerText` 不含子项文本；`hover --selector "#hmenu"` 给 `DISPATCHED=1`、`HIT_IS_TARGET=true`、`CHANGED=true` ＋ `REASON=可观测差异：dom / elemtext（共 4 个字段）`、退出码 0；**正例**同一 `eval` 回读翻成 `display=block` / `offsetParent=BODY` / `rect=[74,40]`、`innerText` 里出现子项文本，且能从子项读到 `href`；再 `hover` 另一个没有监听器的父项 ⇒ 真实 `mouseleave` 生效（子容器回到 `display:none`、`hits` 从 `MOUSEENTER=1 MOUSELEAVE=0` 变 `MOUSEENTER=1 MOUSELEAVE=1`）。**"指针真的进去了"的唯一证据是页面自己的事件计数器**（`HIT_AFTER` / `HIT_AFTER_IS_TARGET` 不作此证：`HIT_AFTER` 是动作之后按**新箱子中心**重新解析的、`HIT_AFTER_IS_TARGET=true` 只因 `el.contains(h)`）。同一件事的另一组读数（`elementFromPoint` 被页面覆盖成 `() => null` 的 fixture，在 `#hsub` 上挂只加数的 `mouseenter` 监听器）：`#hsub` 是 `display:none` 时 `hover` 被闸门拦下 ⇒ 计数 `0`、退出码 1；改成可见后同一条命令 ⇒ 计数 `1`、`DISPATCHED=1`（`HIT=(无读数)` / `HIT_IS_TARGET=unknown` 时结论由计数器给出） | I14 / `hover` 实现口径 | [真机]（2026-10-10 本机实测；逐条命令与原文见本节末的「交付前的最小闭环」） |
 
 **没有自动化判据的部分**：用例总表覆盖「工具做了什么」，覆盖不了「人怎么用它」（**子代理**是否照技能与委派 prompt 走、登录门要不要人工）—— 那部分在「人工 review 项」一节，附量法。
 
@@ -175,8 +181,8 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 | **M10**：Node 侧决策被改 —— `if (spec.value === 'q8') decision.inOptions = true;` | **曾让单测 105/105/0 全绿（当时是缺口）**，CLI **exit 1**（回读层挡住）。⇒ 据此收紧 A85（禁 `decision.inOptions` 赋值 + 出现次数恰 2）：**再跑 ⇒ exit=1，`105 / 104 / 1` 红 A85**；变体 M10b（多读一次 `decision.inOptions`）同样红 |
 | **M11**：闸门放行 **+ 页面连回读一起伪造**（`out.values = values.concat([WANT]); out.value = WANT; out.selectedIndex = values.length;`） | exit=1，`105 / 100 / 5` 红（A76 / A84 / A89 等拦在形状层）。**CLI 端到端 exit 0**：`SELECTED_INDEX=3`、`DOM_VALUE=q8`、`SELECT_APPLIED=true`、`CHANGED=true`，而 pristine `eval` 回读页面仍是 `value=""` / `selectedIndex=-1` ⟹ **残余：页面撒谎时外部分辨不了**（登记在 A98 与 `design.md` 的残余一节） |
 | **M12**：把 `type` 回读表达式里的 `out.kind` 清空 | **预期全绿**：`105 / 105 / 0`、exit=0；CLI `exit 0` 且 `TYPE_APPLIED=unknown` + `READBACK_NOTE=回读没有说清这个元素的可读面是什么`（fail-closed 到 `unknown`，不给假成功）⟹ **残余：回读表达式本身只有纯函数判定被单测钉住**（登记在 A98） |
-| **M13**（基线 111 条）：删掉 `lib/actions.mjs` 里的 `health: Object.freeze([]),` 一行（**只删副本里这一处**） | exit=1，`111 / 109 / 2` 红两条：`A100 命令表与开关清单对齐`（`AssertionError: USAGE 里有 health 但 COMMAND_FLAGS 没登记 —— 这条命令会 100% 不可用`）+ `A100 health 的开关面`（`AssertionError: COMMAND_FLAGS 必须登记 health`）—— 这就是"漏登记 ⇒ 命令不可用"的 `[机检]` 载体（既有那条泛化断言遍历 `COMMAND_FLAGS` 自己的键，删了对它无影响、不会红） |
-| **M14**（基线 111 条）：把 `lib/target.mjs` 的 `truncateUtf8` 退回"只看切点前一个字节"的写法（`while (end > 0 && (buf[end - 1] & 0xc0) === 0x80) end -= 1;`） | exit=1，`111 / 110 / 1` 红 `A101 truncateUtf8 截在字符边界上`：`AssertionError: 切在 emoji 之后 ⇒ 整只 emoji 都在` / `+ body: 'A\ufffd'`、`+ bytes: 2` vs `- body: 'A😀'`、`- bytes: 5` —— 这一版会把 `A😀B` 截成 `A` + 半个 emoji（`BYTES=` 报 2），正是 **真机 stdout 里会出现的乱码**；补上"退回首字节"那一步才转绿 |
+| **M13**（基线 **117** 条）：删掉 `lib/actions.mjs` 里的 `health: Object.freeze([]),` 一行（**只删副本里这一处**） | exit=1，`117 / 115 / 2` 红两条：`A100 命令表与开关清单对齐`（`AssertionError: USAGE 里有 health 但 COMMAND_FLAGS 没登记 —— 这条命令会 100% 不可用`）+ `A100 health 的开关面`（`AssertionError: COMMAND_FLAGS 必须登记 health`）—— 这就是"漏登记 ⇒ 命令不可用"的 `[机检]` 载体（既有那条泛化断言遍历 `COMMAND_FLAGS` 自己的键，删了对它无影响、不会红）。**`hover` 加进来之后（117 条树上）复测：红条数与这两条完全相同** |
+| **M14**（基线 **117** 条）：把 `lib/target.mjs` 的 `truncateUtf8` 退回"只看切点前一个字节"的写法（`while (end > 0 && (buf[end - 1] & 0xc0) === 0x80) end -= 1;`） | exit=1，`117 / 116 / 1` 红 `A101 truncateUtf8 截在字符边界上`：`AssertionError: 切在 emoji 之后 ⇒ 整只 emoji 都在` / `+ body: 'A\ufffd'`、`+ bytes: 2` vs `- body: 'A😀'`、`- bytes: 5` —— 这一版会把 `A😀B` 截成 `A` + 半个 emoji（`BYTES=` 报 2），正是 **真机 stdout 里会出现的乱码**；补上"退回首字节"那一步才转绿。**`hover` 加进来之后（117 条树上）复测：红条数与这一条完全相同** |
 
 **老守卫重跑（第四轮之后、基线 105 条）** —— 换架构之后逐条确认上一轮红过的守卫**没有回绿**：
 
@@ -264,7 +270,7 @@ Select-String -Path skills\adg-browser-use\SKILL.md -Pattern 'cli\.mjs' -Encodin
 - **人为时序（用户正在有头窗口里操作时被关掉）**：**未观测**：**显式**要求换模式或 `close` 会不会打断正在操作的用户没有量过（这是 I4 ③ 的已知代价）；不带旗标的 `launch` 已被 A49 挡住。量法：用户在有头窗口里操作时跑一次带 `--headless` 的 `launch`，记录 `STATE=` 与用户侧窗口的结局。
 - **受限令牌下的失败签名**：**未观测**：`read-only` 策略下没有量过（`workspace-write` 下已观测到浏览器起不来，三条失败签名的文本与判读口径见 `browser/AGENTS.md` 的「红线」一节）。量法：在 `read-only` 会话里跑一次 `launch`，记下退出码与 stderr 首行，与那一节的三条签名对照。
 - **在 macOS / Linux 上装**：**未观测**：`install.sh` 没有在 Windows 上执行过（本机没有 `sh`），两个平台上的安装落点只做了人工核对。量法：在对应平台上跑一次安装脚本，再用部署后的副本跑 `node cli.mjs profile`。
-- **动作判据看不见的效果（漏报面）**：判据按设计只覆盖 DOM 可观测面，所以"页面其实响应了、但落在看不见的面上"（纯 JS 变量 / 网络请求 / 属性与 `class` / 靠 `isTrusted` 分支 / 反应晚于 `--settle`）必然漏报。**已观测两例**：属性那类（A80：`click #attr` ⇒ `CHANGED=false`，`eval` 回读 `data-hit` 从 `0` 变 `1`）、反应晚于取样窗口（A75）。运行时那条引导句（`browser/lib/verify.mjs` 的 `ATTR_BLIND`，四条动作命令的 `WARN=` 末尾都带）**也点名这一类** —— 它、`design.md` 的「判据域」、本表这一条三处口径一致（A14 的 `verdictWarn` 用例逐条机检"点没点名"）。**未观测**：剩下三类（纯 JS 变量 / 网络请求 / `isTrusted` 分支）没有量化过。量法：本地 fixture 让监听器只改 JS 变量、或只发一次 `fetch` 而不改 DOM，跑动作命令看读数（预期 `false`），再用 `eval` 读回那个变量 / 数请求条数，证明动作其实生效。
+- **动作判据看不见的效果（漏报面）**：判据按设计只覆盖 DOM 可观测面，所以"页面其实响应了、但落在看不见的面上"（纯 JS 变量 / 网络请求 / 属性与 `class` / 靠 `isTrusted` 分支 / 反应晚于 `--settle`）必然漏报。**已观测两例**：属性那类（A80：`click #attr` ⇒ `CHANGED=false`，`eval` 回读 `data-hit` 从 `0` 变 `1`）、反应晚于取样窗口（A75）。运行时那条引导句（`browser/lib/verify.mjs` 的 `ATTR_BLIND`，五条动作命令的 `WARN=` 末尾都带）**也点名这一类** —— 它、`design.md` 的「判据域」、本表这一条三处口径一致（A14 的 `verdictWarn` 用例逐条机检"点没点名"）。**未观测**：剩下三类（纯 JS 变量 / 网络请求 / `isTrusted` 分支）没有量化过。量法：本地 fixture 让监听器只改 JS 变量、或只发一次 `fetch` 而不改 DOM，跑动作命令看读数（预期 `false`），再用 `eval` 读回那个变量 / 数请求条数，证明动作其实生效。
 - **「TLS / 证书族失败」与「代理空壳页（HTTP 200 但正文极短）」在现有读数下能不能区分**：**未观测**：本模块的现有读数里没有证书 / TLS 错误面，也没有"这一页其实是代理出的空壳"的判据 —— `text` 只看得到标题 / 地址 / 正文，`health` 只报代理变量**是否存在**（不看它是否真的在链路上、也不看它的返回值）。**上游文档把"两者不可区分"标成推断，本模块没有实测过**，所以这里既不写成"已实测不可区分"、也不写成"可区分"。量法：先做**直连 vs 走代理**的对比 —— 同一地址分别在（a）无代理环境变量与（b）`HTTPS_PROXY` 指向一个可用代理 / 一个不可达代理下各跑一次 `text --url`，记下退出码、`ERROR=` 原文（区分 `ERR_CERT_*` / `ERR_PROXY_*` / `ERR_TUNNEL_*` 那几族名字）与 `BYTES=`；再对一个"走代理才拿得到"的地址看 `BYTES=` 是否坍缩到极短正文。判据是**两族读数的可分辨性**，不是某一次的具体数字；读数齐了再回填本节（在此之前不许当前提用）。
 - **`text` 抓大页面的体积量级**：**未观测**：没有量过"一个正常的重正文页面 `text` 一次打多少字节"，也没有量过默认（不截断）下 stdout 会被撑到多大。量法：本地造一个正文很大的 fixture（仓库外、临时目录里的 `file://` HTML，例如一行固定文本重复几百遍），跑 `node cli.mjs text --url "<那个地址>"` 记 `BYTES=` / `FULL_BYTES=`，再跑 `--max-bytes <小值>` 记 `TRUNCATED=`，两次数值当场取 —— **本条不写死任何字节数当锚**（`design.md` 的「对外接口」一节：字节数一律当场读数、不作锚）；要跟真实站点比时另找一个不需要登录的大正文页面重复同样的两步。
 - **同一 profile 被两条子代理线轮流使用**：**未观测**：量过的是"同一端口上多实例并发"（见上一条），**不是**"两条线**轮流**用同一个 profile"——后者每次换手都可能碰到前一条线留下的活实例、标签页与临时页。量法：两条线（两次委派）按 A → 收尾 → B → 收尾 → 再 A 的顺序各跑一轮带读页与动作的闭环，每轮前后记 `node cli.mjs tabs` 报出的 `TABS=`（算增量：上一轮收尾时的值与下一轮开工时的值）与 `launch` 输出里的 `RETRY=` 次数，再看第二轮/第三轮的 `STATE=` 是 `REUSED` 还是 `STARTED`（`STARTED` 意味着上一轮把实例关掉了）。判据：`TABS=` 不随轮次单调增长、`RETRY=` 每次都为 0 或能解释成端口正在起来的正常重试；出现需要重试才起来、或标签页只增不减，即纪律没被遵守。
@@ -275,6 +281,9 @@ Select-String -Path skills\adg-browser-use\SKILL.md -Pattern 'cli\.mjs' -Encodin
 - **`elementFromPoint` 在滚动容器 / iframe 里**：**未观测**：命中自检只在本机 fixture 的普通文档流 + 绝对定位覆盖层上量过。量法：做一个"滚动后才进入视口"的目标 fixture 与一个 iframe 内目标的 fixture，看 `VISIBLE` / `IN_VIEWPORT` / `SCROLLED` / `HIT_IS_TARGET` 四个读数是否仍然自洽。
 - **`select` 的原生下拉 UI**：**未观测**：本命令走 DOM 赋值 + 派发事件，**没有**模拟点开原生下拉；只看 `isTrusted` 的页面会显示 `CHANGED=false`，这一类的实际占比没量过。量法：找一个用 `isTrusted` 判选的页面，跑 `select` 看读数与页面自身状态是否分离。
 - **"页面主动撒谎 / 主动回滚"这一族**：**已观测两例**（第四轮）：① 页面连回读一起伪造（谎报选项表 + `value` + `selectedIndex`）⇒ 单测红而 **CLI 端到端 exit 0**（M11）；② `type` 的回读表达式被改坏 ⇒ 单测全绿、真机 fail-closed 成 `TYPE_APPLIED=unknown`（M12）。**也已观测**受控组件把选择回滚的场景：`select` 现在报**退出码 1** + `SELECT_APPLIED=false`（A97 的 `#ctrl` 一条；这是本命令的副作用 —— 静默成功换成了确定的失败读数）。**未观测**：真实站点上这三类的占比（框架把 `value` 归位 / 只在 JS 变量里记状态 / 组件库自己重写 `select` 结构），以及"受控组件占比高不高、调用方会不会把退出码 1 误读成工具坏了"。量法：换成 React / Vue 的本地 fixture（受控 `<select>`、受控 `<input>`）各跑一遍 `select` / `type`，把"命令退出码与自证读数"和"页面自身状态"并排记下来；页面伪造回读那一类只能靠"页面的独立证据"（例如页面把状态同时写进 `localStorage` 或另一次 `eval` 读回别的引用）来对照。
+
+- **`hover` 的判据可见性（纯 CSS `:hover` 那一族）**：**已观测**（真机，零 JS 的独立 fixture，三族并排量过）：① `.item:hover .clist { display: block }` ⇒ `CHANGED=true`、`dom=413cbfd5/6 → def1f051/14`、`REASON=可观测差异：dom / elemtext`（`display:none → block` 把子元素文本带进了 `body.innerText` ⇒ 判据**看得见**；回读 `aRect` 从 `[0,0]` 变 `[38,19]`、`body.innerText` 从 2 字节变 6 字节）；② `.item:hover .sub { opacity: 1 }` ⇒ `CHANGED=false`（两侧 `dom=def1f051/14`，而回读 `subOpacity` 从 `"0"` 变 `"1"`）—— 真·假阴性；③ `.item:hover { background / color }` ⇒ `CHANGED=false`（回读 `bg` 从 `rgb(238,238,255)` 变 `rgb(255,221,221)`）。**判据的边界是"这次变化有没有落在可比字段上"，不是"样式 vs 非样式"**（与 `design.md` 的残余一节同口径）。**仍未观测**：真实站点上这三族各占多少，以及这一族配合页面自己的 JS 反应时的读数。
+- **变异自证基线随新增用例重量**：**已观测**（`hover` 的 6 条用例进来之后，在 117 条树上复测改名后基线）：M13 ⇒ exit=1、`117 / 115 / 2`（红 `A100 命令表与开关清单对齐` + `A100 health 的开关面`，与 111 条时红的两条相同）；M14 ⇒ exit=1、`117 / 116 / 1`（红 `A101 truncateUtf8 截在字符边界上`，同上）⇒ **新增用例没有改变任何变异体的红条数，本节基线数字照修改后的口径记（117）**。
 
 ## 交付前的最小闭环
 
@@ -314,7 +323,9 @@ node cli.mjs text --url "file:///<大页 fixture 绝对路径>" --max-bytes 50 -
 #   #attr（click 只 setAttribute 不改文本 —— A80 的判据域边界用）、
 #   #kd（只有 keydown 监听器，把触发次数写进 #kdout —— A81 的逐键面用）、
 #   #ctrl（**受控** select：change 监听把 this.value 归位 —— A94 / A97 的回滚用）、
-#   #deleg（在 document 上注册 change 委托监听，把收到的值写进它的文本 —— A88 的冒泡用）、
+#   #hmenu（父项：`mouseenter` 监听把 #hsub 从 display:none 改成 block，`mouseleave` 改回 —— A105 的 hover 用；
+  #hsub 里放一个 `<a id="hlink" href="...">`，用来验证"展开之后能从子项拿到 href"）、
+  #deleg（在 document 上注册 change 委托监听，把收到的值写进它的文本 —— A88 的冒泡用）、
 #   #never（不存在，超时用）。全部元素都在文档流里可见，不需要滚动。
 # 读页命令（eval / text / shot）的 --url 是"要读的完整地址"，动作命令的 --url 是子串命中 ——
 #   下面一律用 --match 选页，免得两条语义混起来（见 design.md 的 I17）。
@@ -326,6 +337,12 @@ node cli.mjs click --selector "#covered" --force --port 9444 --match adg-browser
 node cli.mjs type --selector "#q" --text "你好 adg" --port 9444 --match adg-browser-fixture   # A70：CHANGED=true（value 那类）
 node cli.mjs select --selector "#city" --value sh --port 9444 --match adg-browser-fixture     # A70：CHANGED=true（selected/value）
 node cli.mjs click --selector "#later" --port 9444 --match adg-browser-fixture    # A75：页面 300ms 后才变 ⇒ CHANGED=false（默认 150ms 的取样窗口不够）
+# —— hover（A105）：反例（先不 hover）→ hover → 正例，用 eval 独立回读子容器三读数 ——
+node cli.mjs eval --file "$env:TEMP\adg-hover-fixture\probe.js" --port 9444 --match fixture.html   # 反例：display=none / offsetParent=null / rect=[0,0]
+node cli.mjs hover --selector "#hmenu" --port 9444 --match fixture.html            # A105：DISPATCHED=1 + HIT_IS_TARGET=true + CHANGED=true（REASON：dom / elemtext）
+node cli.mjs eval --file "$env:TEMP\adg-hover-fixture\probe.js" --port 9444 --match fixture.html   # 正例：display=block / offsetParent=BODY / rect=[74,40]
+node cli.mjs eval --js "document.querySelector('#hlink').href" --port 9444 --match fixture.html     # A105：展开之后能从子项拿到 href
+node cli.mjs hover --selector "#hplain" --port 9444 --match fixture.html           # 对照：真实 mouseleave 触发 ⇒ 子容器回到 display=none
 node cli.mjs wait-for --selector "#late" --visible --timeout 3000 --port 9444 --match adg-browser-fixture   # A75：WAIT=ok ⇒ 上一步其实生效了（A72 同此）
 node cli.mjs wait-for --selector "#never" --timeout 400 --interval 100 --port 9444 --match adg-browser-fixture   # A72：WAIT=timeout、退出码 1
 node cli.mjs click --selector "#go" --port 9444 --match fixture                   # A73：两页命中 ⇒ 用法错 2（先把 fixture 开成两页）

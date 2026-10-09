@@ -1,7 +1,7 @@
 // `browser/` 动作面与判据层的单测：**零依赖、零副作用**（不起浏览器、不联网、不读写 profile）。
 //
 // 全部用"罐装读数 + 假 session"跑：`session.evalJs` 按表达式里的标记返回预先排好的读数，
-// `session.send` 只把 CDP 调用记下来。这样四条命令的用法错误面、判据三态、以及
+// `session.send` 只把 CDP 调用记下来。这样五条命令的用法错误面、判据三态、以及
 // "unknown 不许报成 false" 都能在毫秒级钉住。
 //
 // 跑法：`cd browser && node --test test`（沙箱里加 `--test-isolation=none`）。
@@ -37,10 +37,12 @@ import {
   clickSpec,
   decideSelect,
   hitScopeError,
+  hoverSpec,
   matchHits,
   pageTarget,
   resolveExpr,
   runClick,
+  runHover,
   runSelect,
   runType,
   runWaitFor,
@@ -372,10 +374,10 @@ test('I14 verdictWarn：只描述现象，不下"成功/失败"结论；true 不
   assert.match(warnFalse, /不生效|生效/);
   // 每条命令的引导句分开写：不许让 click 挂上 type 的话（写错方向比不写更坏）。
   const seen = new Set();
-  for (const cmd of ['click', 'type', 'select', 'wait-for']) {
+  for (const cmd of ['click', 'hover', 'type', 'select', 'wait-for']) {
     const w = verdictWarn(cmd, changeVerdict(cmpNo, ACTION_CRITERIA[cmd]), cmpNo);
     assert.ok(w.length > 20, `${cmd} 的引导句太短`);
-    // 判据域边界那一句（只改元素属性 / `class` / `style` ⇒ 必然读成"没有差异"）四条命令都必须带：
+    // 判据域边界那一句（只改元素属性 / `class` / `style` ⇒ 必然读成"没有差异"）五条命令都必须带：
     // 它与 `design.md` 的「判据域」、`testing-guide.md` 的漏报面条目三处口径一致（N5）。
     assert.match(w, /属性/, `${cmd} 的引导句没点名"只改属性 / class / style"这类最常见的漏报面`);
     assert.equal(seen.has(INVISIBLE_TAIL[cmd]), false, `${cmd} 的引导句与别的命令重复了`);
@@ -560,7 +562,7 @@ test('I15 wait-for 的用法错误面：条件三选一、超时与轮询间隔�
 });
 
 // ---------------------------------------------------------------------------
-// 动作层：四条命令的执行体（假 session）
+// 动作层：五条命令的执行体（假 session）
 // ---------------------------------------------------------------------------
 
 test('I13 click：几何 + 命中自检 + 真实鼠标事件 + 前后比对', async () => {
@@ -641,6 +643,112 @@ test('I13 click：命中读数缺失（elementFromPoint 没结果）⇒ unknown 
   assert.match(valueOf(out, 'WARN'), /缺测不许读成"点在目标上"/);
   assert.equal(session.calls.send.length, 2, '缺测只提示，不拦（拦住会把"可能成功"当成"确定失败"）');
   assert.equal(v.changed, 'false', 'DOM 没变且读得到 ⇒ false');
+});
+
+test('I12 hover 的用法错误面：与 click 同一套口径（选择器 / --force 开关 / --settle / 位置参数）', () => {
+  assert.throws(() => hoverSpec({ _: ['hover'], urls: [] }), /需要 --selector/);
+  assert.throws(() => hoverSpec({ _: ['hover'], urls: [], selector: true }), /--selector 后面缺少 CSS 选择器/);
+  assert.throws(() => hoverSpec({ _: ['hover'], urls: [], selector: '#a', settle: 'abc' }), /--settle 必须是/);
+  assert.throws(() => hoverSpec({ _: ['hover'], urls: [], selector: '#a', force: 'yes' }), /--force 是开关/);
+  assert.throws(() => hoverSpec({ _: ['hover', '#a', '#b', '#c'], urls: [] }), /不认识多余的位置参数/);
+  // 别的动作命令的开关照旧不许混进来（I12）：hover 不是 click，也不认 --text / --value。
+  assert.throws(
+    () => checkFlagScope({ _: ['hover'], urls: [], selector: '#a', text: 'x' }, 'hover'),
+    /hover 不认识开关：--text/,
+  );
+  assert.deepEqual(hoverSpec({ _: ['hover'], urls: [], selector: '#a' }), {
+    selector: '#a',
+    force: false,
+    settleMs: 150,
+  });
+  assert.deepEqual(hoverSpec({ _: ['hover', '#b'], urls: [], force: true, settle: '0' }), {
+    selector: '#b',
+    force: true,
+    settleMs: 0,
+  });
+});
+
+test('I13 hover：一次 `buttons: 0` 的 mouseMoved + 前后比对（事件序列与 click 不同）', async () => {
+  const session = makeSession({
+    resolve: [resolveOk({ tag: 'li', hitDesc: 'li#menu' })],
+    state: [st({ domText: '下拉=关' }), st({ domText: '下拉=开' })],
+  });
+  const out = collector();
+  const verdict = await runHover({ session, spec: hoverSpec({ _: ['hover'], urls: [], selector: '#menu' }), out });
+  assert.equal(verdict.changed, 'true', 'FIXTURE：悬停后子容器可见 ⇒ DOM 那一类有差异');
+  assert.equal(valueOf(out, 'HIT_IS_TARGET'), 'true');
+  assert.equal(valueOf(out, 'POINT'), '110,220');
+  assert.equal(valueOf(out, 'CHANGED'), 'true');
+  assert.equal(valueOf(out, 'DISPATCHED'), '1');
+  assert.equal(session.calls.send.length, 1, 'hover 只发一个事件 —— 不按下、不松开');
+  assert.equal(session.calls.send[0].method, 'Input.dispatchMouseEvent');
+  assert.equal(session.calls.send[0].params.type, 'mouseMoved');
+  assert.equal(session.calls.send[0].params.x, 110);
+  assert.equal(session.calls.send[0].params.y, 220);
+  assert.equal(session.calls.send[0].params.buttons, 0, '显式 buttons: 0（按下了就成了拖动 / 点选）');
+  assert.equal(session.calls.send[0].params.button, undefined);
+  // 回读那一套与 click 同款（只读、不改退出码）。
+  assert.equal(valueOf(out, 'HIT_AFTER'), 'li#menu');
+  assert.equal(valueOf(out, 'HIT_AFTER_IS_TARGET'), 'true');
+});
+
+test('I13 hover：被遮挡时默认**不发事件**（用法错 2），--force 才照原样发', async () => {
+  const spec = hoverSpec({ _: ['hover'], urls: [], selector: '#menu' });
+  const session = makeSession({ resolve: [resolveOk({ hitIsTarget: false, hitDesc: 'div#cover' })] });
+  const out = collector();
+  await usage(() => runHover({ session, spec, out }), /默认不发事件/);
+  assert.equal(session.calls.send.length, 0, '拒发时一个 CDP 事件都不许发');
+  assert.equal(valueOf(out, 'HIT_IS_TARGET'), 'false');
+  assert.match(valueOf(out, 'WARN'), /命中的是 div#cover/);
+  assert.equal(out.has('CHANGED='), false, '没发事件就不该有 CHANGED 读数');
+
+  const forced = makeSession({
+    resolve: [resolveOk({ hitIsTarget: false, hitDesc: 'div#cover' })],
+    state: [st({ domText: 'A' }), st({ domText: 'B' })],
+  });
+  const out2 = collector();
+  const v2 = await runHover({
+    session: forced,
+    spec: hoverSpec({ _: ['hover'], urls: [], selector: '#menu', force: true }),
+    out: out2,
+  });
+  assert.equal(v2.changed, 'true');
+  assert.equal(forced.calls.send.length, 1, '--force 要真的发出去');
+  assert.equal(forced.calls.send[0].params.type, 'mouseMoved');
+  assert.match(valueOf(out2, 'WARN'), /照原样发/);
+});
+
+test('I13 hover：不可见 / 视口外 / 没匹配到 / 选择器非法 —— 都说清且不发事件', async () => {
+  const spec = hoverSpec({ _: ['hover'], urls: [], selector: '#menu' });
+  const invisible = makeSession({
+    resolve: [resolveOk({ visible: false, box: [0, 0, 0, 0], point: null, onScreen: false })],
+  });
+  await runtime(() => runHover({ session: invisible, spec, out: collector() }), /没有可悬停的区域/);
+  assert.equal(invisible.calls.send.length, 0);
+
+  const offscreen = makeSession({ resolve: [resolveOk({ onScreen: false, point: null })] });
+  await runtime(() => runHover({ session: offscreen, spec, out: collector() }), /不在视口内/);
+  assert.equal(offscreen.calls.send.length, 0);
+
+  const missing = makeSession({ resolve: [NOT_FOUND] });
+  await runtime(() => runHover({ session: missing, spec, out: collector() }), /没有匹配到元素/);
+  assert.equal(missing.calls.send.length, 0);
+
+  const bad = makeSession({ resolve: [resolveOk({ found: false, selectorError: "'#(' is not a valid selector" })] });
+  await usage(() => runHover({ session: bad, spec, out: collector() }), /选择器不合法/);
+});
+
+test('I13 hover：命中断测缺失（elementFromPoint 没结果）⇒ unknown 而**不是**"指针进到了目标上"', async () => {
+  const session = makeSession({
+    resolve: [resolveOk({ hitIsTarget: null, hitDesc: '' })],
+    state: [st({ domText: 'A' }), st({ domText: 'A' })],
+  });
+  const out = collector();
+  const v = await runHover({ session, spec: hoverSpec({ _: ['hover'], urls: [], selector: '#menu' }), out });
+  assert.equal(valueOf(out, 'HIT_IS_TARGET'), 'unknown');
+  assert.match(valueOf(out, 'WARN'), /缺测不许读成"指针进到了目标上"/);
+  assert.equal(session.calls.send.length, 1, '缺测只提示，不拦（拦住会把"可能成功"当成"确定失败"）');
+  assert.equal(v.changed, 'false', 'DOM 没变且读得到 ⇒ false（它不等于"悬停没生效"，见 WARN）');
 });
 
 test('I13 type：聚焦成功 → 一次 insertText；focus 不属于被观测的动作', async () => {

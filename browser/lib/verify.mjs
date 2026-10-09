@@ -83,11 +83,18 @@ export const ACTION_CRITERIA = Object.freeze({
     needsKinds: Object.freeze(['dom', 'tabs']),
     ignore: Object.freeze([]),
   }),
+  // `hover` 自己不按键、不聚焦：它发出的是一个真实的指针位移，效果只可能落在"页面内容变了"
+  // （下拉展开 / 提示浮层出现 / 内容被换掉）这一类上。`active` **不**忽略 —— 与 `click` 不同，
+  // 指针位移本身不会挪焦点，所以焦点一变就是页面对这次悬停的真实反应，不该被从判据里去掉。
+  hover: Object.freeze({
+    needsKinds: Object.freeze(['dom', 'tabs']),
+    ignore: Object.freeze([]),
+  }),
 });
 
 /**
  * `false` 的引导句：这条命令的判据**看不见**哪些效果（照 desktop 的 `kindTail` 写）。
- * 判据域边界那一句（`ATTR_BLIND`）四条命令都带上：元素属性 / `class` / `style` 不在判据域内，
+ * 判据域边界那一句（`ATTR_BLIND`）五条动作命令都带上：元素属性 / `class` / `style` 不在判据域内，
  * 而"只改这三样"是最常见的一类漏报面（真机 A80 已实测）。这句话、`design.md` 的「判据域」一处、
  * 以及 `testing-guide.md` 的漏报面条目**三处口径必须一致**。
  */
@@ -109,6 +116,10 @@ export const INVISIBLE_TAIL = Object.freeze({
     ATTR_BLIND,
   'wait-for':
     '等待期间页面可能发生了本判据看不见的变化（JS 变量 / 网络请求）；条件成立与否的答案在 `WAIT=` 那一行，不在 `CHANGED=` 里。' +
+    ' ' +
+    ATTR_BLIND,
+  hover:
+    '页面只做了纯 CSS `:hover` 的**样式**变化（改配色 / 边框 / 光标 / 阴影 —— 判据域不含样式）、只改了 JS 变量或发起了网络请求、或页面反应晚于 --settle（默认 150ms）—— 这类效果必然读成"没有差异"。' +
     ' ' +
     ATTR_BLIND,
 });

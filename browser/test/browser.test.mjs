@@ -29,6 +29,7 @@ import {
 } from '../lib/target.mjs';
 import { assertRuntime, connect, pickPage, pickTabsToClose } from '../lib/cdp.mjs';
 import {
+  ACTION_COMMANDS,
   COMMAND_FLAGS,
   COMMON_FLAGS,
   UsageError,
@@ -594,6 +595,22 @@ test('A100 命令表与开关清单对齐：USAGE 列出的命令一个都不许
   assert.ok(Object.prototype.hasOwnProperty.call(COMMAND_FLAGS, 'help'));
   // 这份清单**真的**是从源码里读出来的，不是把命令名抄了一遍（抄的话这里就相等了）。
   assert.notDeepEqual(cmds.slice().sort(), Object.keys(COMMAND_FLAGS).sort());
+});
+
+test('A102 hover：命令表里有它、被登记成动作命令、开关面与 click 同款', () => {
+  const cmds = usageCommands();
+  assert.ok(cmds.includes('hover'), `USAGE 的命令表里必须有 hover（收到：${cmds.join(' / ')}）`);
+  assert.ok(
+    ACTION_COMMANDS.includes('hover'),
+    'hover 必须是动作命令 —— 否则不进动作分发，也拿不到动作面的选页唯一命中约束（I17）',
+  );
+  assert.deepEqual(
+    [...allowedFlags('hover')].sort(),
+    [...COMMON_FLAGS, 'force', 'match', 'selector', 'settle', 'tab', 'url'].sort(),
+    'hover 认识：通用开关 + selector / force / settle + 三条选页路',
+  );
+  assert.equal(allowedFlags('hover').has('text'), false, 'hover 不认 --text');
+  assert.equal(allowedFlags('hover').has('value'), false, 'hover 不认 --value');
 });
 
 test('A100 health 的开关面：只认通用开关，别的命令的开关必须判用法错 2', () => {

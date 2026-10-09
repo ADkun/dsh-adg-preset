@@ -1,6 +1,6 @@
 ---
 name: adg-browser-use
-description: 给在 Adg 模式里拿到浏览器工具链的子代理用：`${DSH_HOME:-~/.dsh}/browser/cli.mjs` 的契约与常用子命令、**四条动作命令（`click` / `type` / `select` / `wait-for`）与「动作成败只认可观测差异」的三态判据 `CHANGED=true|false|unknown`（`unknown` 绝不许读成 `false`）**、默认无头与「换模式只有一条换法」、任务进行中不 `close`、选页必须命中、标签页卫生、profile 与登录态是资产、「登录永远由人在有头窗口完成」的人工介入协议，以及降级成 `web_fetch` 的条件。委派要求做网页交互、多步表单、登录态站点操作时加载。
+description: 给在 Adg 模式里拿到浏览器工具链的子代理用：`${DSH_HOME:-~/.dsh}/browser/cli.mjs` 的契约与常用子命令、**五条动作命令（`click` / `hover` / `type` / `select` / `wait-for`）与「动作成败只认可观测差异」的三态判据 `CHANGED=true|false|unknown`（`unknown` 绝不许读成 `false`）**、默认无头与「换模式只有一条换法」、任务进行中不 `close`、选页必须命中、标签页卫生、profile 与登录态是资产、「登录永远由人在有头窗口完成」的人工介入协议，以及降级成 `web_fetch` 的条件。委派要求做网页交互、多步表单、登录态站点操作时加载。
 whenToUse: 委派里给了 `browser/cli.mjs` 这条工具链、要求做真实的网页交互（点、填、选、等条件、跳转、抓多页）时使用；或在网页自动化里撞上登录墙 / 验证码 / 浏览器起不来时使用。
 ---
 
@@ -29,6 +29,7 @@ node "$env:DSH_HOME\browser\cli.mjs" help
 | `eval --js "<表达式>"` 或 `eval --file <脚本>` | 在页面里求值；**复杂 JS 走文件**，省掉 PowerShell 引号地狱 |
 | `shot --out <png> [--full]` | 截图 |
 | `click --selector <css> [--force]` | 点元素：真实鼠标事件（pressed + released）+ 命中自检，点到的不是目标默认拒发 |
+| `hover --selector <css> [--force]` | 悬停：真实指针移到元素中心（一次显式 `buttons: 0` 的 `mouseMoved`，即不按任何键）+ 同一套命中自检；**靠 `mouseenter` 展开的下拉 / 菜单要先 `hover` 再 `click`** |
 | `type --selector <css> --text <串> [--clear]` | 聚焦 → 一次 `Input.insertText` → 前后比对；`--clear` ＝先全选再插入 |
 | `select --selector <css> --value <值>` | 给 `<select>` 赋值并派发 `input` / `change`；值不在选项里默认拒发 |
 | `wait-for --selector <css> [--visible]` / `--url-match <串>` / `--js "<表达式>"` | 等条件成立：`--timeout` / `--interval`，超时是「没等到」的确定读数 |
@@ -41,7 +42,7 @@ node "$env:DSH_HOME\browser\cli.mjs" help
 
 ## 动作命令：成败只认可观测差异（`CHANGED=`）
 
-`click` / `type` / `select` / `wait-for` 每条都在动作前后各取一次 DOM 可观测状态（url / 标题 / DOM 摘要 / 滚动位置 / 焦点 / 标签页数 / 目标元素的存在与可见性 / value / checked / selectedIndex 等），据此打一行三态判据：
+`click` / `hover` / `type` / `select` / `wait-for` 每条都在动作前后各取一次 DOM 可观测状态（url / 标题 / DOM 摘要 / 滚动位置 / 焦点 / 标签页数 / 目标元素的存在与可见性 / value / checked / selectedIndex 等），据此打一行三态判据：
 
 - `CHANGED=true` —— 这些读法确实看到了差异。
 - `CHANGED=false` —— 在**能比且看得见**的那些类别里没有差异，而且**只覆盖取样那一刻**（默认 `--settle 150ms` 之后）。所以它**不是"动作没生效"的结论**：页面反应晚于这个窗口也会读成 `false`（真机已观测：点一个 300ms 后才改页面的按钮给 `false`，紧接着 `wait-for` 给 `WAIT=ok`，动作其实生效了）。要等更晚的效果就加 `--settle <ms>`，或用 `wait-for` 判条件。
@@ -52,6 +53,7 @@ node "$env:DSH_HOME\browser\cli.mjs" help
 两道闸门**默认在发事件之前**以**退出码 2** 停手（连 `DISPATCHED` 行都不会出现）：
 
 - `click` 的命中自检：`HIT_IS_TARGET=false`（点在别的元素上，例如被遮挡）—— 要硬发加 `--force`。
+- `hover` 的**同一套**命中自检：`HIT_IS_TARGET=false`（指针要移到的那个位置上其实是别的元素，例如被遮挡）—— 同样 `--force` 才硬发。
 - `select` 的值不在选项里：会打 `WARN=` 列出可用取值。
 
 `wait-for` 超时是**「没等到」的确定读数**：`WAIT=timeout` ＋退出码 1 ＋ `POLLS=` / `ELAPSED_MS=`；`WAIT=ok` 才是条件成立。超时既不是工具坏了，也不许当成成功。
@@ -65,6 +67,14 @@ node "$env:DSH_HOME\browser\cli.mjs" help
 - `click` 打 `HIT_AFTER=` / `HIT_AFTER_IS_TARGET=`：**事后**再用同一选择器解析一次，说明"页面里那个选择器现在指向谁"；它**证明不了"点到的就是它"**（点错元素时照样 `true`）。
 
 判据的原料全部来自页面读数，所以**页面主动撒谎 / 主动回滚时外部无法分辨**（已实测）：页面连回读一起伪造时命令可能给出 `SELECT_APPLIED=true` 与 `CHANGED=true`。**子代理不许把这类读数写成"确认到位"**；有疑问就用 `--js` 断言表达式或 `eval` 从页面另取一份独立证据（例如页面同时把状态写进别的引用），并如实说明"这条结论的证据来自页面自己"。
+
+## 找入口：先枚举、再判可见、再动手
+
+- **`text` 读的是 `document.body.innerText`（页面渲染出来的可见文本）**：所以「`text` 里没有」只说明**当时不可见**，不说明 DOM 里不存在 —— 隐藏容器（下拉、折叠面板、`display:none` 的块）里的链接本来就不会出现在正文里。要判"有没有"，用 `eval` 读 DOM，别拿 `text` 下"这页没有这个东西"的结论。
+- **导航入口找不到时，先枚举再决定点不点**：用 `eval` 跑一遍
+  `[...document.querySelectorAll('a')].map(a => ({ text: a.textContent.trim(), href: a.getAttribute('href'), visible: a.offsetParent !== null, rect: [a.getBoundingClientRect().width, a.getBoundingClientRect().height], display: getComputedStyle(a).display }))`
+  —— 一次就能把"看不见但存在"的入口连同它的 `href` 一起拿到（本工具链的起因用例里，这一步直接给出了目标地址），再决定是直接 `open` 那个地址，还是先展开再点。
+- **靠 `mouseenter` 展开的下拉 / 菜单：先 `hover` 再 `click`** —— `click` 只发 `mousePressed` + `mouseReleased`，不会先"把指针移进去"，所以菜单里的条目在点击那一刻仍不可见（等于点空）。用 `hover --selector <父项>`（真实指针移到元素中心，一次**显式 `buttons: 0`** 的 `mouseMoved`）展开，再确认子项真的可见（`eval` 回读三读数，或 `wait-for --selector <子项> --visible`），然后才 `click` 子项。注意 **`hover` 判据给 `CHANGED=false` 不等于"没展开"**：判据看的是"这次变化有没有落在**可比字段**上" —— `display:none → block` 会把子元素文本带进 `document.body.innerText`，所以展开类效果（下拉 / 折叠 / 带文本的浮层）判据**看得见**；只有**不改 `innerText` 的纯视觉属性**（`opacity` / 配色 / 边框 / 阴影）才会给 `false`，这时以自己 `eval` 回读的 `getComputedStyle` / `offsetParent` 为准。**`hover` 的 `HIT_AFTER` / `HIT_AFTER_IS_TARGET` 不作"指针真的进去了"的证明**（它是动作之后按新箱子中心重新解析的）—— 要证明，用页面自己的事件计数器：在目标元素上挂一个只加数的 `mouseenter` 监听器，动作前后各 `eval` 回读一次（拒发 ⇒ 计数不变，发出 ⇒ +1）。
 
 ## 模式：默认无头，换法只有一条
 

@@ -1,14 +1,21 @@
-// `browser/` 的动作面：`click` / `type` / `select` / `wait-for` 四条命令的实现与判据接线。
+// `browser/` 的动作面：`click` / `hover` / `type` / `select` / `wait-for` 五条命令的实现与判据接线。
 //
 // 分层：本模块只做「用法校验 + 页面内动作 + 判据接线」三件事。它不碰 CDP 通道（只要求传进来的
 // `session` 有 `evalJs(expr)` 与 `send(method, params)`），也不管端口 / profile / 标签页卫生
 // （那些在 `cli.mjs` 与 `lib/cdp.mjs`）。这样 `test/actions.test.mjs` 能用一个假 session
-// 把四条命令的用法错误面与三态钉住，全程不碰浏览器、不联网、零依赖。
+// 把五条命令的用法错误面与三态钉住，全程不碰浏览器、不联网、零依赖。
 //
-// 三条实现口径（都是本次刻意选的，改动要连文档一起改）：
+// 四条实现口径（都是本次刻意选的，改动要连文档一起改）：
 //   · `click` 走 `Input.dispatchMouseEvent` 的 mousePressed + mouseReleased —— **真实输入事件**，
 //     等价于用户真的按了一下鼠标（`element.click()` 或页面内 `dispatchEvent` 是合成事件，
 //     页面用 `isTrusted` 就能分辨，而且不经过浏览器的命中测试）。
+//   · `hover` 走 `Input.dispatchMouseEvent` 的 mouseMoved（显式 `buttons: 0`）—— 把真实指针移到元素中心，
+//     让页面按"鼠标进入"处理（`mouseenter` / `mouseover`，浏览器自己的命中测试决定进入哪个元素）。
+//     "靠指针进入才展开"的下拉 / 菜单只有这一条路：它可能是 CSS `:hover`，也可能是页面自己的
+//     `mouseenter` 监听；两者都要求指针**真的**进到那个元素上（本用例是后者）。与 `click` 的顺序是
+//     先 `hover` 再 `click` —— 展开之前下拉里的项既不可见也点不到。
+//     **本次不动 `click` 的事件序列**（仍是 pressed + released，不前置 mouseMoved）：加前置位移会
+//     改既有契约，而且"移过去"本身会触发 mouseenter 副作用（有的页面据此记账 / 开浮层）。
 //   · `type` 走 `Input.insertText` —— 与 `keyDown`/`keyUp` 逐字符相比，它是**一次插入整段文本**：
 //     中文 / emoji / 组合字符不会被拆成半个码位，也不会被输入法状态改写；代价是不触发逐键的
 //     `keydown` / `keyup`（只触发 `beforeinput` / `input`）。要知道用哪个域，看下面 `type` 的注释。
@@ -18,7 +25,7 @@
 //     那一类实验接口，而它不覆盖 select。DOM 赋值 + 派发事件是浏览器自身在用户选择时做的事，
 //     页面能观测到的部分一致（除了 `isTrusted`）。
 //
-// 四条命令的共同点：**动作发出去之后必须自己复核**（看 `lib/verify.mjs`），
+// 五条命令的共同点：**动作发出去之后必须自己复核**（看 `lib/verify.mjs`），
 // 输出里没有 `CHANGED=true` 就不算证明生效。
 //
 // 不变量落点（定义在 `design.md`，编号是跨文件引用的锚）：
@@ -26,7 +33,7 @@
 //   I13 元素定位 / 动作执行 / 状态探针三件事都在页面内各读一次
 //   I14 判据三态（`lib/verify.mjs`：`captureState` / `compareStates` / `changeVerdict`）
 //   I15 wait-for 的超时是"没等到"的确定读数（`WAIT=timeout` + 退出码 1），不是静默成功
-//   I16 所有闸门**先于发事件**（click 的命中自检 / type 的焦点回读与可输入性 / select 的选项存在性）
+//   I16 所有闸门**先于发事件**（click / hover 的命中自检 / type 的焦点回读与可输入性 / select 的选项存在性）
 //   I17 动作类命令选页方式唯一，且 `--match` 必须唯一命中（`matchHits`）
 
 import {
@@ -66,6 +73,7 @@ export const COMMAND_FLAGS = Object.freeze({
   eval: Object.freeze(['url', 'match', 'tab', 'js', 'file', 'keep']),
   shot: Object.freeze(['url', 'match', 'tab', 'out', 'full', 'keep']),
   click: Object.freeze(['url', 'match', 'tab', 'selector', 'force', 'settle']),
+  hover: Object.freeze(['url', 'match', 'tab', 'selector', 'force', 'settle']),
   type: Object.freeze(['url', 'match', 'tab', 'selector', 'text', 'clear', 'settle']),
   select: Object.freeze(['url', 'match', 'tab', 'selector', 'value', 'settle']),
   'wait-for': Object.freeze([
@@ -81,8 +89,8 @@ export const COMMAND_FLAGS = Object.freeze({
   ]),
 });
 
-/** 这次动作面的四条命令（它们共用"选页必须唯一命中"与"一次只对一个页面做动作"的约束）。 */
-export const ACTION_COMMANDS = Object.freeze(['click', 'type', 'select', 'wait-for']);
+/** 这次动作面的五条命令（它们共用"选页必须唯一命中"与"一次只对一个页面做动作"的约束）。 */
+export const ACTION_COMMANDS = Object.freeze(['click', 'hover', 'type', 'select', 'wait-for']);
 
 /** 某条命令认识的开关集合；不认识的命令返回 `null`（**不猜**清单，交给后面的"不认识命令"）。 */
 export function allowedFlags(cmd) {
@@ -231,6 +239,16 @@ export function clickSpec(args) {
   return {
     selector,
     force: boolFlag(args, 'force', 'click'),
+    settleMs: settleOf(args),
+  };
+}
+
+export function hoverSpec(args) {
+  const selector = selectorOf(args, 'hover');
+  extraPositionals(args, 'hover');
+  return {
+    selector,
+    force: boolFlag(args, 'force', 'hover'),
     settleMs: settleOf(args),
   };
 }
@@ -638,7 +656,7 @@ export function pollJsExpr(js) {
 }
 
 // ---------------------------------------------------------------------------
-// 四条命令的执行体
+// 五条命令的执行体
 // ---------------------------------------------------------------------------
 
 function num(v, digits = 2) {
@@ -757,6 +775,82 @@ export async function runClick({ session, spec, out, listTabs = null }) {
   // "这个坐标上真正最上面的元素"**再算一遍** —— 与 `HIT=` 不一致就是真话。
   // `click` 没有通用的"写入后回读"：点击的效果是任意的（导航、开菜单、跑副作用），
   // 所以这里只能回读**命中面**这一个可观测量，它证明不了"点击产生了预期效果"（残余，见 design.md）。
+  try {
+    const after = await session.evalJs(resolveExpr(spec.selector, { scrollIntoView: false }));
+    out(`HIT_AFTER=${after?.hitDesc || '(无读数)'}`);
+    out(
+      `HIT_AFTER_IS_TARGET=${
+        after?.hitIsTarget === null || after?.hitIsTarget === undefined ? 'unknown' : String(after.hitIsTarget)
+      }`,
+    );
+  } catch (e) {
+    out(`HIT_AFTER=(回读失败)`);
+    out('HIT_AFTER_IS_TARGET=unknown');
+    out(`HIT_AFTER_NOTE=${clipStr(e?.message ?? String(e), 200)}`);
+  }
+  return verdict;
+}
+
+/**
+ * `hover`：选择器定位 → 几何与命中自检 → **真实指针移到元素中心**（`mouseMoved`，显式 `buttons: 0`）→ 前后状态比对。
+ * 它打开的是"靠指针进入触发"的下拉 / 菜单（CSS `:hover` 或页面自己的 `mouseenter` 监听）。
+ * 闸门与读数面与 `click` **同一套口径**：命中自检先于发事件（I16）、三态边界不放松
+ * （读不到就是 `unknown`）、`--settle` 之后才取 `AFTER` 读数。
+ * 与 `click` 只有两点差别：①事件形状是一次 `mouseMoved`（显式 `buttons: 0`、不给 `button` 字段），不是按下 + 松开；
+ * ②`HIT_AFTER` 回读的是"悬停之后这个坐标上最上面的元素是谁"（浮层弹出后它常常换成浮层里的东西，
+ * 那是页面响应了悬停的**旁证**，不是"悬停生效"的证明 —— 证明仍然只在 `CHANGED=` 上）。
+ */
+export async function runHover({ session, spec, out, listTabs = null }) {
+  const r = await resolveElement(session, spec.selector, { scrollIntoView: true });
+  printTarget(out, spec.selector, r);
+  if (r.selectorError) {
+    throw new UsageError(`hover：选择器不合法：${r.selectorError}（--selector ${spec.selector}）`);
+  }
+  if (!r.found) throw new Error(`hover：选择器没有匹配到元素：${spec.selector}`);
+  out(`VISIBLE=${r.visible}`);
+  out(`IN_VIEWPORT=${r.inViewport}`);
+  out(`SCROLLED=${r.scrolled}`);
+  printBox(out, r);
+  out(`HIT=${r.hitDesc || '(无读数)'}`);
+  out(`HIT_IS_TARGET=${r.hitIsTarget === null ? 'unknown' : String(r.hitIsTarget)}`);
+  if (!r.visible) {
+    throw new Error(
+      `hover：元素存在但没有可悬停的区域（display:none / visibility:hidden / opacity:0 / 零尺寸）：${spec.selector} —— 真实用户的指针也进不到它上面`,
+    );
+  }
+  if (!r.onScreen) {
+    throw new Error(
+      `hover：元素不在视口内（滚到视口内之后仍然没有可见部分），指针进不去：${spec.selector}（box=${r.box ? r.box.map((v) => num(v)).join(',') : '?'}）`,
+    );
+  }
+  if (r.hitIsTarget === false) {
+    const msg = `指针落点上最上面的元素不是目标（命中的是 ${r.hitDesc}）：真实的指针会进到它上面，而不是 ${spec.selector}`;
+    if (!spec.force) {
+      out(`WARN=${msg}；默认**不发事件**（要照原样发加 --force）`);
+      throw new UsageError(`${msg}；默认不发事件，加 --force 照原样发`);
+    }
+    out(`WARN=${msg}；按 --force 照原样发 —— 下面 CHANGED 的读数反映的是**那个**元素收到的指针进入`);
+  } else if (r.hitIsTarget === null) {
+    out(
+      'WARN=这个坐标上读不到"指针会进到谁身上"（elementFromPoint 没给出结果），HIT_IS_TARGET=unknown —— **缺测不许读成"指针进到了目标上"**；按原样发',
+    );
+  }
+  const x = r.point[0];
+  const y = r.point[1];
+  const verdict = await verifyPair(out, 'hover', session, spec, listTabs, async () => {
+    // 真实输入事件：一次**显式 `buttons: 0`** 的指针位移（不给 `button` 字段 ＝ 没有按下任何键）。
+    // 页面按"鼠标进入"处理它（mouseenter / mouseover）；除命中测试外它什么都不做 ——
+    // 不点、不聚焦、不选词。这就是"用指针进入以打开下拉"这件事的唯一对应命令。
+    await session.send('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x,
+      y,
+      buttons: 0,
+    });
+    out('DISPATCHED=1');
+  });
+  // 命中面的**回读**（只读，不改退出码）：与 `click` 同一处埋点，语义一样 —— 它说的是
+  // "这个选择器现在指向谁、那个坐标上最上面的是谁"，**证明不了**悬停产生了预期效果。
   try {
     const after = await session.evalJs(resolveExpr(spec.selector, { scrollIntoView: false }));
     out(`HIT_AFTER=${after?.hitDesc || '(无读数)'}`);
