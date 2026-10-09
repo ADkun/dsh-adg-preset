@@ -38,6 +38,26 @@ export function envGet(env, name) {
   return undefined;
 }
 
+/**
+ * 把文本截到最多 `max` 个 UTF-8 字节（**不切碎多字节字符**）。返回 `{ body, bytes, fullBytes }`：
+ * `bytes` 是这次真写出去的字节数、`fullBytes` 是文本原本的字节数。`max <= 0` = 不截断。
+ *
+ * 纯函数（只依赖 `Buffer`），所以放在这一层：`text --max-bytes` 的体积读数靠它，
+ * 而"截在哪里"要有单测钉住 —— `cli.mjs` 不再导出任何东西（见 design.md 的「库接口」）。
+ */
+export function truncateUtf8(text, max) {
+  const buf = Buffer.from(text, 'utf8');
+  if (!(max > 0) || buf.length <= max) return { body: text, bytes: buf.length, fullBytes: buf.length };
+  let end = max;
+  // 切点正好落在多字节字符**里面**（该字符的首字节在 `end` 之前、续字节还没完）时，退回到它的首字节。
+  if ((buf[end] & 0xc0) === 0x80) {
+    while (end > 0 && (buf[end] & 0xc0) === 0x80) end -= 1;
+  } else if (end > 0 && (buf[end - 1] & 0xc0) === 0xc0) {
+    end -= 1;
+  }
+  return { body: buf.subarray(0, end).toString('utf8'), bytes: end, fullBytes: buf.length };
+}
+
 /** DSH 用户根：`DSH_HOME` 优先，缺省 `~/.dsh`。 */
 export function dshHome(env = process.env, home = os.homedir()) {
   const raw = envGet(env, 'DSH_HOME');

@@ -23,10 +23,19 @@ import {
   resolveMode,
   resolvePort,
   resolveProfile,
+  truncateUtf8,
   MODE_DEFAULT,
   PROFILE_DIRNAME,
 } from '../lib/target.mjs';
 import { assertRuntime, connect, pickPage, pickTabsToClose } from '../lib/cdp.mjs';
+import {
+  COMMAND_FLAGS,
+  COMMON_FLAGS,
+  UsageError,
+  allowedFlags,
+  checkFlagScope,
+  intOpt,
+} from '../lib/actions.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIB = path.join(HERE, '..', 'lib');
@@ -546,4 +555,160 @@ test('I10 初始导航失败也要收走自己开的临时页（失败路径同�
     /if \(created\) await closeTarget\(port, picked\.page\.id, \{ socketFactory \}\)/,
     '失败时要关掉自己刚开的那个临时页',
   );
+});
+
+// ---------------------------------------------------------------------------
+// A99 / A100 / A101 的 [机检] 载体：health 的读数面与开关面、命令表与开关清单的对齐、
+// `text --max-bytes` 的用法错面与截断纯函数。真机那半在 testing-guide.md 的「交付前的最小闭环」。
+//
+// `cli.mjs` 是**命令层**：它不导出任何东西（design.md 的「库接口」），所以这里用源码字符串读它
+// —— `I10` 那几条既有用例也是这么做的；用法错面与开关清单则走 `lib/actions.mjs` 的导出。
+// ---------------------------------------------------------------------------
+
+const CLI_SRC = fs.readFileSync(path.join(HERE, '..', 'cli.mjs'), 'utf8');
+
+/** `USAGE` 命令表里列出的命令名（tail 收到「通用选项：」那一行为止）。 */
+function usageCommands() {
+  const start = CLI_SRC.indexOf('命令：');
+  const end = CLI_SRC.indexOf('通用选项：');
+  assert.ok(start >= 0 && end > start, 'cli.mjs 的 USAGE 必须同时有「命令：」与「通用选项：」两节');
+  const lines = CLI_SRC.slice(start, end).split('\n');
+  return lines
+    .slice(1)
+    .filter((l) => /^ {2}\S/.test(l))
+    .map((l) => l.trim().split(/\s+/)[0]);
+}
+
+test('A100 命令表与开关清单对齐：USAGE 列出的命令一个都不许漏登记（漏了会被判「不认识命令」）', () => {
+  const cmds = usageCommands();
+  assert.ok(cmds.includes('health'), `USAGE 的命令表里必须有 health（收到：${cmds.join(' / ')}）`);
+  assert.ok(cmds.includes('text') && cmds.includes('profile') && cmds.includes('status'));
+  // 反向：表里列出的每个命令都要有开关清单 —— 漏一个就在分发前报"不认识命令"（退出码 2）。
+  for (const cmd of cmds) {
+    assert.ok(
+      Object.prototype.hasOwnProperty.call(COMMAND_FLAGS, cmd),
+      `USAGE 里有 ${cmd} 但 COMMAND_FLAGS 没登记 —— 这条命令会 100% 不可用`,
+    );
+  }
+  // 兄弟：`help` 不在命令表里（它由 `node cli.mjs help` 实现），但仍然是合法命令。
+  assert.ok(Object.prototype.hasOwnProperty.call(COMMAND_FLAGS, 'help'));
+  // 这份清单**真的**是从源码里读出来的，不是把命令名抄了一遍（抄的话这里就相等了）。
+  assert.notDeepEqual(cmds.slice().sort(), Object.keys(COMMAND_FLAGS).sort());
+});
+
+test('A100 health 的开关面：只认通用开关，别的命令的开关必须判用法错 2', () => {
+  assert.ok(Object.keys(COMMAND_FLAGS).includes('health'), 'COMMAND_FLAGS 必须登记 health');
+  assert.deepEqual([...allowedFlags('health')].sort(), [...COMMON_FLAGS].sort(), 'health 认识且只认识通用开关');
+  assert.equal(allowedFlags('nosuchcmd'), null);
+  assert.doesNotThrow(() => checkFlagScope({ _: ['health'], urls: [], port: 9333, profile: 'x' }, 'health'));
+  for (const bad of ['selector', 'settle', 'out', 'max-bytes', 'js', 'full']) {
+    assert.throws(
+      () => checkFlagScope({ _: ['health'], urls: [], [bad]: bad === 'settle' ? 100 : 'x' }, 'health'),
+      (e) => {
+        assert.ok(e instanceof UsageError, `--${bad} 必须是用法错`);
+        assert.match(e.message, /health 不认识开关：/);
+        return true;
+      },
+    );
+  }
+});
+
+test('A99 health 的读数面：有 NODE= / 6 行等价读数 / 纯 HTTP 探活 / 代理存在性，没有 MODE= / TABS= / 代理值', () => {
+  const start = CLI_SRC.indexOf("if (cmd === 'health')");
+  assert.ok(start >= 0, "cli.mjs 里必须有 cmd === 'health' 的分支");
+  const end = CLI_SRC.indexOf("if (cmd === 'launch')", start);
+  assert.ok(end > start, 'health 分支之后必须还是 launch 分支');
+  const branch = CLI_SRC.slice(start, end);
+  for (const line of [
+    'NODE=${process.execPath}',
+    'DSH_HOME=${dshHome()}',
+    'PROFILE=${profile}',
+    'PROFILE_EXISTS=${fs.existsSync(profile)}',
+    'PORT=${port}',
+    "CHROME=${chrome ?? 'NOT_FOUND'}",
+    'DEFAULT_MODE=${resolveMode()}',
+    'ALIVE=${await cdp.isAlive(port, { timeoutMs: 2500 })}',
+    'PROXY_SET=${proxySet.length > 0}',
+    "PROXY_SOURCE=${proxySet.length > 0 ? proxySet.join(',') : 'none'}",
+  ]) {
+    assert.ok(branch.includes(line), `health 必须有这一行：${line}`);
+  }
+  // 探活只走 `cdp.isAlive`（纯 HTTP）：分支里不许 spawn。
+  assert.equal(/spawn/.test(branch), false, 'health 不许 spawn 任何进程（探活是纯 HTTP 读数）');
+  // 四个代理名字只用来判存在性，值一律不回显（不许直接下标取 process.env）。
+  for (const n of ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY']) {
+    assert.ok(branch.includes(n), `health 要看 ${n} 是否存在`);
+  }
+  assert.ok(/const proxyNames = \[[^\]]*\];/.test(CLI_SRC), '代理名字清单必须是独立的一行，便于核对');
+  assert.equal(/process\.env\[/.test(branch), false, 'health 不许直接读代理变量的值（只许 envGet 判存在）');
+  // 刻意不报的两种读数：真实 MODE= 只有 status 报、TABS= 要建 CDP 会话。
+  assert.equal(/print\(`MODE=/.test(branch), false, 'health 不许报真实 MODE=');
+  assert.equal(/print\(`TABS=/.test(branch), false, 'health 不许报 TABS=');
+  assert.ok(CLI_SRC.includes('print(`TABS=${picked.pages.length}`)'), 'TABS= 仍由 printTabs 那一处报');
+  assert.ok(CLI_SRC.includes('print(`MODE=${detectMode(version)}`)'), '真实 MODE= 仍由 status 那一处报');
+});
+
+test('A101 体积读数只此一份：BYTES= 是写出去的、FULL_BYTES= 是正文原本的、TRUNCATED= 由截断结果决定', () => {
+  const src = CLI_SRC.slice(CLI_SRC.indexOf("if (cmd === 'text')"));
+  assert.ok(src.includes('print(`BYTES=${cut.bytes}`)'), 'BYTES= 必须取截断结果里真写出去的那个数');
+  assert.ok(src.includes('print(`FULL_BYTES=${cut.fullBytes}`)'), 'FULL_BYTES= 必须取正文原本的字节数');
+  assert.ok(src.includes('print(`TRUNCATED=${cut.body !== body}`)'), 'TRUNCATED= 必须由"内容真的变短了"决定');
+  const bytesRows = CLI_SRC.match(/print\(`BYTES=/g) ?? [];
+  const fullRows = CLI_SRC.match(/print\(`FULL_BYTES=/g) ?? [];
+  assert.equal(bytesRows.length, 1, 'BYTES= 只允许一处（不许出现两个互相矛盾的体积读数）');
+  assert.equal(fullRows.length, 1, 'FULL_BYTES= 只允许一处');
+  // 旧语义：不截断时 `truncateUtf8` 返回的就是正文全长，两个读数相等。
+  const whole = truncateUtf8('abc', 0);
+  assert.equal(whole.bytes, whole.fullBytes);
+});
+
+test('A101 --max-bytes 的用法错面：非整数 / 负数 / 超上限 / 缺值 / 与 --out 合用一律退 2', () => {
+  for (const bad of ['abc', '-1', '1.5', '', '999999999999']) {
+    assert.throws(
+      () => intOpt({ _: ['text'], 'max-bytes': bad }, 'max-bytes', 0, 0, 100 * 1024 * 1024, 'text'),
+      UsageError,
+      `--max-bytes ${JSON.stringify(bad)} 必须判用法错`,
+    );
+  }
+  assert.throws(
+    () => intOpt({ _: ['text'], 'max-bytes': true }, 'max-bytes', 0, 0, 100 * 1024 * 1024, 'text'),
+    /--max-bytes 后面缺少值/,
+    '裸 --max-bytes（没有值）必须判用法错',
+  );
+  assert.equal(intOpt({ _: ['text'] }, 'max-bytes', 0, 0, 100 * 1024 * 1024, 'text'), 0, '没给就是"不截断"');
+  assert.equal(intOpt({ _: ['text'], 'max-bytes': '50' }, 'max-bytes', 0, 0, 100 * 1024 * 1024, 'text'), 50);
+  assert.ok(
+    /if \(maxBytes > 0 && args\.out\) throw new UsageError\(/.test(CLI_SRC),
+    '--max-bytes 与 --out 合用必须是用法错（--out 一律写完整正文）',
+  );
+  assert.ok(/fs\.writeFileSync\(abs, body, 'utf8'\)/.test(CLI_SRC), '--out 那条路必须写**完整**正文');
+});
+
+test('A101 truncateUtf8 截在字符边界上：上限落在多字节字符中间就回退（bytes 可以略小于上限）', () => {
+  // 'A😀B' = A(1) + 😀(4，首字节在索引 1) + B(1) = 6 字节；😀 占字节 1..4。
+  assert.equal(Buffer.byteLength('A😀B', 'utf8'), 6);
+  assert.deepEqual(truncateUtf8('A😀B', 5), { body: 'A😀', bytes: 5, fullBytes: 6 }, '切在 emoji 之后 ⇒ 整只 emoji 都在');
+  assert.deepEqual(truncateUtf8('A😀B', 1), { body: 'A', bytes: 1, fullBytes: 6 }, '切在 emoji 首字节之前 ⇒ 只留 A');
+  assert.deepEqual(truncateUtf8('A😀B', 3), { body: 'A', bytes: 1, fullBytes: 6 }, '切在 emoji 里面 ⇒ 退回首字节之前（只留 A）');
+  assert.deepEqual(truncateUtf8('A😀B', 8), { body: 'A😀B', bytes: 6, fullBytes: 6 }, '上限超过全长 ⇒ 整段照发（不截）');
+  assert.deepEqual(truncateUtf8('A😀B', 6), { body: 'A😀B', bytes: 6, fullBytes: 6 }, '恰好等于全长 ⇒ 不截');
+  assert.deepEqual(truncateUtf8('A😀B', 9), { body: 'A😀B', bytes: 6, fullBytes: 6 }, '上限大于全长 ⇒ 不截（`buf.length <= max` 这一支）');
+  // 组合字符：'e' + U+0301（1+2 字节）—— 字节流是 e U+0301 e U+0301 …
+  const combining = `e${String.fromCharCode(0x301)}`.repeat(5); // 15 字节
+  assert.equal(Buffer.byteLength(combining, 'utf8'), 15);
+  assert.deepEqual(truncateUtf8(combining, 8), { body: combining.slice(0, 5), bytes: 7, fullBytes: 15 }, '切在 `e`+U+0301 的续字节里 ⇒ 丢掉这一格（7 字节 = 3 个字形 + 一个裸 `e`）');
+  assert.deepEqual(truncateUtf8(combining, 10), { body: combining.slice(0, 7), bytes: 10, fullBytes: 15 }, '切在下一格的 `e` 之后 ⇒ 这一格照发（10 字节 = 3 个半字形）');
+  // 中文：3 字节一个字。上限 8 落在第二个字的续字节上 ⇒ 丢掉第二个字（6 字节 = 两个字）；
+  // 上限 9 正好是两字边界 ⇒ 给两个字（不许把第三个字切一半）。
+  assert.deepEqual(truncateUtf8('中中文', 8), { body: '中中', bytes: 6, fullBytes: 9 });
+  assert.deepEqual(truncateUtf8('中中文', 9), { body: '中中文', bytes: 9, fullBytes: 9 }, '上限 = 全长 ⇒ 不截（`buf.length <= max` 那一支）');
+  // `max <= 0` = 不截断；任何结果都满足"写出去的字节数 <= 上限（未截断时 = 全长）"。
+  assert.deepEqual(truncateUtf8('A😀B', 0), { body: 'A😀B', bytes: 6, fullBytes: 6 });
+  assert.deepEqual(truncateUtf8('', 5), { body: '', bytes: 0, fullBytes: 0 });
+  for (const n of [0, 1, 2, 3, 4, 5, 6, 7, 9]) {
+    const r = truncateUtf8('A😀B', n);
+    assert.ok(r.bytes <= (n > 0 ? n : 6), `上限 ${n} 下写出的字节数不许超过上限`);
+    assert.equal(Buffer.byteLength(r.body, 'utf8'), r.bytes, 'bytes 必须等于真写出去的字节数');
+    assert.equal(Buffer.from(r.body, 'utf8').toString('utf8'), r.body, '不许切出半个字符（乱码）');
+  }
 });

@@ -24,12 +24,14 @@ import {
   chromeCandidates,
   detectMode,
   dshHome,
+  envGet,
   findChrome,
   planLaunch,
   modeIsExplicit,
   resolveMode,
   resolvePort,
   resolveProfile,
+  truncateUtf8,
 } from './lib/target.mjs';
 import * as cdp from './lib/cdp.mjs';
 import {
@@ -40,6 +42,7 @@ import {
   checkPageScope,
   clickSpec,
   hitScopeError,
+  intOpt,
   matchHits,
   pageTarget,
   runClick,
@@ -61,6 +64,7 @@ const USAGE = `用法：node cli.mjs <命令> [选项]
   status     报端口是否活着、浏览器版本、模式、当前标签页
   tabs       只列标签页（序号 | 标题 | 地址）—— 清理前先看这个
   profile    报解析出来的 profile / 端口 / Chrome 路径 / 默认模式（排错用）
+  health     一次调用报全环境读数：node 路径 + profile / 端口 / Chrome / 默认模式 + 存活探活 + 代理是否存在
   open <url> 新开一个标签页（已有同地址则复用，不重复开）
   text       读当前页的标题 / 地址 / 可见文本
   eval       在页面里求值（--js "<表达式>" 或 --file <脚本路径>）
@@ -84,6 +88,9 @@ const USAGE = `用法：node cli.mjs <命令> [选项]
   --match <子串>   按 url / title 子串选页；close-tab 用它关掉所有匹配的页
   --tab <n>        按序号选页（0 起）；close-tab 用它关那一个
   --out <file>     text 写正文到文件；shot 指定 png 路径
+  --max-bytes <n>  text 只把正文前 n 个 UTF-8 字节写到 stdout（默认 0 = 不截断；n 以上照旧是
+                   BYTES=/FULL_BYTES= 两个读数：BYTES= 是这次真写出去的字节数、FULL_BYTES= 是正文
+                   原本的字节数，截断时另打 TRUNCATED=true）。与 --out 不能合用（--out 一律写完整正文）
   --wait <秒>      launch 等待端口起来的秒数（默认 30）
   --full           shot 截整页
   --keep           text/eval/shot --url 为读新地址而开的**临时标签**默认读完就关，加这个保留它
@@ -298,6 +305,28 @@ async function main() {
     return;
   }
 
+  // 环境读数一次给全：`profile` 的那 6 行 + node 路径 + 一次纯 HTTP 探活 + 代理**是否存在**。
+  // 刻意不报：真实 `MODE=`（那要读活着实例的 CDP User-Agent，只有 status 报）、`TABS=`（会建 CDP 会话）。
+  // 探活复用 `cdp.isAlive`（对 CDP 端点的纯 HTTP 读数）—— 这条命令**不 spawn 浏览器、不落盘任何状态**。
+  if (cmd === 'health') {
+    const chrome = findChrome();
+    print(`NODE=${process.execPath}`);
+    print(`DSH_HOME=${dshHome()}`);
+    print(`PROFILE=${profile}`);
+    print(`PROFILE_EXISTS=${fs.existsSync(profile)}`);
+    print(`PORT=${port}`);
+    print(`CHROME=${chrome ?? 'NOT_FOUND'}`);
+    print(`DEFAULT_MODE=${resolveMode()}`);
+    print(`ALIVE=${await cdp.isAlive(port, { timeoutMs: 2500 })}`);
+    // 代理只报存在性：值里常带凭据 / 内网地址，一条排错命令不该把它回显进日志。
+    const proxyNames = ['HTTPS_PROXY', 'HTTP_PROXY', 'ALL_PROXY', 'NO_PROXY'];
+    const proxySet = proxyNames.filter((n) => envGet(process.env, n) !== undefined);
+    print(`PROXY_SET=${proxySet.length > 0}`);
+    print(`PROXY_SOURCE=${proxySet.length > 0 ? proxySet.join(',') : 'none'}`);
+    if (proxySet.length > 0) print('HINT=代理变量只报是否存在，值一律不回显');
+    return;
+  }
+
   if (cmd === 'launch') {
     const urls = args.urls.slice();
     const waitSec = Number(args.wait ?? 30);
@@ -491,13 +520,18 @@ async function main() {
 
   if (cmd === 'text') {
     await requireAlive(port);
+    const maxBytes = intOpt(args, 'max-bytes', 0, 0, 100 * 1024 * 1024, 'text');
+    if (maxBytes > 0 && args.out) throw new UsageError('--max-bytes 与 --out 不能合用：--out 一律写完整正文');
     const { session, created } = await sessionFor(port, args);
     try {
       const t = await session.text();
       const body = String(t.body ?? '');
+      const cut = truncateUtf8(body, maxBytes);
       print(`TITLE=${t.title ?? ''}`);
       print(`URL=${t.url ?? ''}`);
-      print(`BYTES=${Buffer.byteLength(body, 'utf8')}`);
+      print(`BYTES=${cut.bytes}`);
+      print(`FULL_BYTES=${cut.fullBytes}`);
+      print(`TRUNCATED=${cut.body !== body}`);
       if (args.out) {
         const abs = path.resolve(String(args.out));
         fs.mkdirSync(path.dirname(abs), { recursive: true });
@@ -505,7 +539,7 @@ async function main() {
         print(`OUT=${abs}`);
       } else {
         print('---BODY---');
-        process.stdout.write(`${body}\n`);
+        process.stdout.write(`${cut.body}\n`);
       }
     } finally {
       await closeTempTab(port, created, session, args.keep);

@@ -58,10 +58,11 @@ export const COMMAND_FLAGS = Object.freeze({
   status: Object.freeze([]),
   tabs: Object.freeze([]),
   profile: Object.freeze([]),
+  health: Object.freeze([]),
   open: Object.freeze(['url']),
   'close-tab': Object.freeze(['match', 'tab']),
   close: Object.freeze([]),
-  text: Object.freeze(['url', 'match', 'tab', 'out', 'keep']),
+  text: Object.freeze(['url', 'match', 'tab', 'out', 'keep', 'max-bytes']),
   eval: Object.freeze(['url', 'match', 'tab', 'js', 'file', 'keep']),
   shot: Object.freeze(['url', 'match', 'tab', 'out', 'full', 'keep']),
   click: Object.freeze(['url', 'match', 'tab', 'selector', 'force', 'settle']),
@@ -129,7 +130,7 @@ function boolFlag(args, name, cmd) {
   return true;
 }
 
-function intOpt(args, name, fallback, min, max, cmd) {
+export function intOpt(args, name, fallback, min, max, cmd) {
   if (args[name] === undefined) return fallback;
   if (args[name] === true || args[name] === '') {
     throw new UsageError(`--${name} 后面缺少值（${cmd}）`);

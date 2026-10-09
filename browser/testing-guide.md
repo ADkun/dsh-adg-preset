@@ -123,6 +123,9 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 | A96 | 动作面 | `type` 回读自证：`typeReadbackVerdict` 三态（读到插入的文本 ⇒ `true`、读到但**不含**文本 ⇒ `false`、选择器读不到 / 面不认识 ⇒ `unknown`）+ 命令层「回读里没有插入文本 ⇒ `TYPE_APPLIED=false` 而判据仍 `CHANGED=true`」（自证与判据是两件事，**都不改退出码**） | I16 | [机检] |
 | A97 | 真机闭环（无头） | **第四轮的现场读数**（原文）：`select #city --value sh` ⇒ 退 0 / `SELECT_APPLIED=true` / `CHANGED=true`；`select #city --value q8` ⇒ 退 2 / `VALUE_IN_OPTIONS=false` / 无 `DISPATCHED` / 见证三处仍是原值；`select #ctrl --value bj`（受控、回滚）⇒ **退 1** / `SELECT_APPLIED=false` / `DOM_VALUE=` / `SELECTED_INDEX=0`；`type #q --text ab` ⇒ `TYPE_APPLIED=true` / `READBACK_KIND=value` / `READBACK_VALUE=ab`；`click #go` ⇒ `HIT_AFTER=button#go` / `HIT_AFTER_IS_TARGET=true`；`click #attr` ⇒ `HIT_AFTER_IS_TARGET=true` / `CHANGED=false`（属性不在判据域） | I16 | [真机] |
 | A98 | 残余登记 | 判据原料全来自页面读数 ⇒ **"页面主动撒谎"外部无法分辨**，两条已实测并登记：① 页面连回读一起伪造（闸门放行 + `out.values` / `out.value` / `out.selectedIndex` 全谎报）⇒ 单测红 5 条而 **CLI 端到端 exit 0**（`SELECT_APPLIED=true`，而 pristine `eval` 回读页面其实没变）；② `type` 的回读**表达式**本身被改坏 ⇒ 单测全绿、真机 fail-closed 成 `TYPE_APPLIED=unknown` + `READBACK_NOTE`（不给假成功）。口径见 `design.md` 的「闸门被绕过 / 页面撒谎时，哪条读数还说得上话（残余）」 | I16 / 诚实原则 | [评] + [机检] |
+| A99 | `health` | 一条命令给全 `NODE=`（node 可执行文件路径）/ `DSH_HOME=` / `PROFILE=` / `PROFILE_EXISTS=` / `PORT=` / `CHROME=` / `DEFAULT_MODE=` / `ALIVE=`（复用 `cdp.isAlive` 的**纯 HTTP** 探活）/ `PROXY_SET=` / `PROXY_SOURCE=`（那四个代理环境变量**是否存在**），退出码 0；**不报**真实 `MODE=`、**不报** `TABS=`；代理变量有值时只出现存在性、**值一次都不出现**；命令**不 spawn 浏览器、不建 websocket / CDP 会话、不落盘任何状态文件**。`[机检]` 那半钉的是**读数面与文字面**（每一行 `KEY=` 逐字在位、分支里没有 `spawn`、没有 `print(\`MODE=`/`print(\`TABS=`、只经 `envGet` 判存在），**读数本身**（本机 node 路径、Chrome 路径、`ALIVE` 真假、代理变量）只在真机上才取得出来 | I12 / design.md 的「对外接口」 | [机检] + [真机] |
+| A100 | `health` | 开关面：`health` 认识且只认识通用开关（`COMMON_FLAGS`）—— `--selector` 这类别的命令的开关必须被 `checkFlagScope` 判成用法错 2，不许静默忽略（`COMMAND_FLAGS` 里漏登记 `health` 会让这条命令在分发前就报"不认识命令"，同样退 2）。**漏登记的守卫**：`test/browser.test.mjs` 从 `USAGE` 命令表里逐行读命令名、逐个与 `COMMAND_FLAGS` 对齐 —— 既有那条泛化断言遍历的是 `COMMAND_FLAGS` 自己的键，漏登记它不会红 | I12 | [机检] |
+| A101 | `text --max-bytes` | 小上限下 `BYTES=` 等于真写出去的字节数、`FULL_BYTES=` 是正文原本的字节数、`TRUNCATED=true`；截断**只按 UTF-8 字符边界**（不切碎多字节字符 ⇒ 写出的字节数可以略小于上限，以 `BYTES=` 为准；**切点落在字符内部时退回到它前面那个完整字符之后**，这是 `lib/target.mjs` 的 `truncateUtf8` 的纯函数行为，`[机检]` 钉住）；不带 `--max-bytes` 时 `TRUNCATED=false` 且 `BYTES=FULL_BYTES`（**旧语义逐字未变**：`BYTES=` 仍是这次写出去的正文 UTF-8 字节数）；`--max-bytes` 非整数 / 负数 / 超上限 / 缺值 ⇒ 用法错 2；**与 `--out` 合用 ⇒ 用法错 2**（`--out` 一律写完整正文，两个体积读数不许同时出现） | I11 / design.md 的「对外接口」 | [机检] + [真机] |
 
 **没有自动化判据的部分**：用例总表覆盖「工具做了什么」，覆盖不了「人怎么用它」（**子代理**是否照技能与委派 prompt 走、登录门要不要人工）—— 那部分在「人工 review 项」一节，附量法。
 
@@ -172,6 +175,8 @@ cd browser && node --test --test-isolation=none test # 本机沙箱（workspace-
 | **M10**：Node 侧决策被改 —— `if (spec.value === 'q8') decision.inOptions = true;` | **曾让单测 105/105/0 全绿（当时是缺口）**，CLI **exit 1**（回读层挡住）。⇒ 据此收紧 A85（禁 `decision.inOptions` 赋值 + 出现次数恰 2）：**再跑 ⇒ exit=1，`105 / 104 / 1` 红 A85**；变体 M10b（多读一次 `decision.inOptions`）同样红 |
 | **M11**：闸门放行 **+ 页面连回读一起伪造**（`out.values = values.concat([WANT]); out.value = WANT; out.selectedIndex = values.length;`） | exit=1，`105 / 100 / 5` 红（A76 / A84 / A89 等拦在形状层）。**CLI 端到端 exit 0**：`SELECTED_INDEX=3`、`DOM_VALUE=q8`、`SELECT_APPLIED=true`、`CHANGED=true`，而 pristine `eval` 回读页面仍是 `value=""` / `selectedIndex=-1` ⟹ **残余：页面撒谎时外部分辨不了**（登记在 A98 与 `design.md` 的残余一节） |
 | **M12**：把 `type` 回读表达式里的 `out.kind` 清空 | **预期全绿**：`105 / 105 / 0`、exit=0；CLI `exit 0` 且 `TYPE_APPLIED=unknown` + `READBACK_NOTE=回读没有说清这个元素的可读面是什么`（fail-closed 到 `unknown`，不给假成功）⟹ **残余：回读表达式本身只有纯函数判定被单测钉住**（登记在 A98） |
+| **M13**（基线 111 条）：删掉 `lib/actions.mjs` 里的 `health: Object.freeze([]),` 一行（**只删副本里这一处**） | exit=1，`111 / 109 / 2` 红两条：`A100 命令表与开关清单对齐`（`AssertionError: USAGE 里有 health 但 COMMAND_FLAGS 没登记 —— 这条命令会 100% 不可用`）+ `A100 health 的开关面`（`AssertionError: COMMAND_FLAGS 必须登记 health`）—— 这就是"漏登记 ⇒ 命令不可用"的 `[机检]` 载体（既有那条泛化断言遍历 `COMMAND_FLAGS` 自己的键，删了对它无影响、不会红） |
+| **M14**（基线 111 条）：把 `lib/target.mjs` 的 `truncateUtf8` 退回"只看切点前一个字节"的写法（`while (end > 0 && (buf[end - 1] & 0xc0) === 0x80) end -= 1;`） | exit=1，`111 / 110 / 1` 红 `A101 truncateUtf8 截在字符边界上`：`AssertionError: 切在 emoji 之后 ⇒ 整只 emoji 都在` / `+ body: 'A\ufffd'`、`+ bytes: 2` vs `- body: 'A😀'`、`- bytes: 5` —— 这一版会把 `A😀B` 截成 `A` + 半个 emoji（`BYTES=` 报 2），正是 **真机 stdout 里会出现的乱码**；补上"退回首字节"那一步才转绿 |
 
 **老守卫重跑（第四轮之后、基线 105 条）** —— 换架构之后逐条确认上一轮红过的守卫**没有回绿**：
 
@@ -260,6 +265,10 @@ Select-String -Path skills\adg-browser-use\SKILL.md -Pattern 'cli\.mjs' -Encodin
 - **受限令牌下的失败签名**：**未观测**：`read-only` 策略下没有量过（`workspace-write` 下已观测到浏览器起不来，三条失败签名的文本与判读口径见 `browser/AGENTS.md` 的「红线」一节）。量法：在 `read-only` 会话里跑一次 `launch`，记下退出码与 stderr 首行，与那一节的三条签名对照。
 - **在 macOS / Linux 上装**：**未观测**：`install.sh` 没有在 Windows 上执行过（本机没有 `sh`），两个平台上的安装落点只做了人工核对。量法：在对应平台上跑一次安装脚本，再用部署后的副本跑 `node cli.mjs profile`。
 - **动作判据看不见的效果（漏报面）**：判据按设计只覆盖 DOM 可观测面，所以"页面其实响应了、但落在看不见的面上"（纯 JS 变量 / 网络请求 / 属性与 `class` / 靠 `isTrusted` 分支 / 反应晚于 `--settle`）必然漏报。**已观测两例**：属性那类（A80：`click #attr` ⇒ `CHANGED=false`，`eval` 回读 `data-hit` 从 `0` 变 `1`）、反应晚于取样窗口（A75）。运行时那条引导句（`browser/lib/verify.mjs` 的 `ATTR_BLIND`，四条动作命令的 `WARN=` 末尾都带）**也点名这一类** —— 它、`design.md` 的「判据域」、本表这一条三处口径一致（A14 的 `verdictWarn` 用例逐条机检"点没点名"）。**未观测**：剩下三类（纯 JS 变量 / 网络请求 / `isTrusted` 分支）没有量化过。量法：本地 fixture 让监听器只改 JS 变量、或只发一次 `fetch` 而不改 DOM，跑动作命令看读数（预期 `false`），再用 `eval` 读回那个变量 / 数请求条数，证明动作其实生效。
+- **「TLS / 证书族失败」与「代理空壳页（HTTP 200 但正文极短）」在现有读数下能不能区分**：**未观测**：本模块的现有读数里没有证书 / TLS 错误面，也没有"这一页其实是代理出的空壳"的判据 —— `text` 只看得到标题 / 地址 / 正文，`health` 只报代理变量**是否存在**（不看它是否真的在链路上、也不看它的返回值）。**上游文档把"两者不可区分"标成推断，本模块没有实测过**，所以这里既不写成"已实测不可区分"、也不写成"可区分"。量法：先做**直连 vs 走代理**的对比 —— 同一地址分别在（a）无代理环境变量与（b）`HTTPS_PROXY` 指向一个可用代理 / 一个不可达代理下各跑一次 `text --url`，记下退出码、`ERROR=` 原文（区分 `ERR_CERT_*` / `ERR_PROXY_*` / `ERR_TUNNEL_*` 那几族名字）与 `BYTES=`；再对一个"走代理才拿得到"的地址看 `BYTES=` 是否坍缩到极短正文。判据是**两族读数的可分辨性**，不是某一次的具体数字；读数齐了再回填本节（在此之前不许当前提用）。
+- **`text` 抓大页面的体积量级**：**未观测**：没有量过"一个正常的重正文页面 `text` 一次打多少字节"，也没有量过默认（不截断）下 stdout 会被撑到多大。量法：本地造一个正文很大的 fixture（仓库外、临时目录里的 `file://` HTML，例如一行固定文本重复几百遍），跑 `node cli.mjs text --url "<那个地址>"` 记 `BYTES=` / `FULL_BYTES=`，再跑 `--max-bytes <小值>` 记 `TRUNCATED=`，两次数值当场取 —— **本条不写死任何字节数当锚**（`design.md` 的「对外接口」一节：字节数一律当场读数、不作锚）；要跟真实站点比时另找一个不需要登录的大正文页面重复同样的两步。
+- **同一 profile 被两条子代理线轮流使用**：**未观测**：量过的是"同一端口上多实例并发"（见上一条），**不是**"两条线**轮流**用同一个 profile"——后者每次换手都可能碰到前一条线留下的活实例、标签页与临时页。量法：两条线（两次委派）按 A → 收尾 → B → 收尾 → 再 A 的顺序各跑一轮带读页与动作的闭环，每轮前后记 `node cli.mjs tabs` 报出的 `TABS=`（算增量：上一轮收尾时的值与下一轮开工时的值）与 `launch` 输出里的 `RETRY=` 次数，再看第二轮/第三轮的 `STATE=` 是 `REUSED` 还是 `STARTED`（`STARTED` 意味着上一轮把实例关掉了）。判据：`TABS=` 不随轮次单调增长、`RETRY=` 每次都为 0 或能解释成端口正在起来的正常重试；出现需要重试才起来、或标签页只增不减，即纪律没被遵守。
+
 - **`type` 与逐键事件（`keydown` / `keyup`）**：**已观测**的是这一层：`type` 走 `Input.insertText`，逐键事件一次都不发 —— 只有 `keydown` 监听器的元素在 `type` 后监听器没跑（A81 的 `#kdout` 仍 `keydown=0`），而"只放行数字"的 `keydown` 拦截器**拦不住** `type`（A81：`abc` 照样写进去，`eval` 回读 `value=abc`）；此时判据报的是 `CHANGED=true`，因为 `value` 真的变了。**未观测**：真实站点上靠 `keydown` 做输入校验 / 只认 `isTrusted` 逐键事件的页面占多大比例，以及这种 `true` 会不会被调用方误读成"页面接受了这段输入"。量法：找一个用 `keydown` 拦非数字输入的表单页（或本地 fixture 复刻），跑 `type` 后同时读 `value` 与该页自己的校验提示，把"判据读数"与"页面是否真接受"两件事并排记下来。
 - **`--settle` 默认值够不够**：**未观测**：150ms 对异步渲染的慢页面够不够没量过；判据只保证"取 `AFTER` 之前等过 settle"。量法：本地 fixture 让监听器延迟 500ms 才改 DOM，分别用默认与 `--settle 800` 跑 `click`，比较两次 `CHANGED=`。（窗口不够的**一例已观测**：A75 的 `click #later` ⇒ `CHANGED=false`；`--settle` 该取多大仍未观测。）
 - **`type` 与真实输入法 / 组合字符**：**未观测**：`Input.insertText` 在输入法候选、emoji 组合序列下的行为只按 CDP 语义推断（验收给的是直接字符串，`TEXT_BYTES=` 是 UTF-8 字节数）。量法：在有头窗口里手动敲同样内容，再用 `eval` 读回 `value.length` 与字节数，对比 `TEXT_CHARS=` / `TEXT_BYTES=`。
@@ -287,6 +296,16 @@ node cli.mjs text --url https://example.com/             # A50：打 TAB_CLOSED=
 node cli.mjs close-tab --match example.com               # A51：只剩一个页时须被拒（退出码 1、ALIVE=true）
 node cli.mjs close                                       # A53：ALIVE=false、CLOSED=true
 node cli.mjs status                                      # A53：MODE=none
+node cli.mjs health                                      # A99：NODE= / 那 6 行等价读数 / ALIVE= / PROXY_SET= / PROXY_SOURCE=；**没有** MODE= / TABS=，退出码 0
+node cli.mjs health --selector "#go"                     # A100：用法错 2（health 不认识别的命令的开关）
+# `--max-bytes`（A101）：先造一个仓库外的本地大页 fixture（临时目录里的 file:// HTML，正文足够长），
+#   同一个地址跑三次对比 —— 不截断 / 小上限 / 与 --out 合用（后者必须退 2）。
+node cli.mjs text --url "file:///<大页 fixture 绝对路径>"                      # A101：BYTES=FULL_BYTES、TRUNCATED=false
+node cli.mjs text --url "file:///<大页 fixture 绝对路径>" --max-bytes 50        # A101：BYTES<=50、FULL_BYTES=正文全长、TRUNCATED=true
+node cli.mjs text --url "file:///<大页 fixture 绝对路径>" --max-bytes 50 --out "$env:TEMP\adg-max.txt"   # A101：用法错 2
+# 字符边界那一格（单一元用例抓不到"stdout 里出现半个字符"）：再造一个小页，正文以 emoji 开头
+#   （例如 `A😀B` + 若干行），`--max-bytes` 给小到落在 emoji 里面（如 2、3）⇒ BODY 必须是完整的
+#   `A`（不许出现 U+FFFD 乱码）；给 5（正好切在 emoji 之后）⇒ BODY 是 `A😀`。真机读数见 M14 那条自证。
 
 # —— 动作闭环（A70–A82）：自有实例 + 本地 fixture，全程无头 ——
 # fixture（本地 HTML，file://）须含：#go（点一下把 #count 的文本改掉）、#plain（没有监听器的普通 div）、
