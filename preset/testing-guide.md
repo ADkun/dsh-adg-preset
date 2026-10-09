@@ -41,7 +41,7 @@ last_reviewed: 2026-10-04
 | SV7 | 登录入口 | 不存在"预先禁止登录"或把"请用户手动登录"写成失败的措辞 | R13 | `[评]` |
 | SV8 | 浏览器模式 | 保留"模式由**调度者**在派发前判定并写进委派"（确定不需要登录 / 验证码 → 无头；确定需要 → 有头；拿不准 → 先无头、真撞上登录墙 / 验证码再换成有头），且不再出现"派发前问用户有头 / 无头、每任务问一次"的措辞；工具层默认 `browser/lib/target.mjs` 的 `MODE_DEFAULT = 'headless'` 不得被改 | R19 | `[评]` + `[机检]` |
 | SV9 | 浏览器命令行契约 | 委派文本里给子代理的命令名与输出行（`profile` / `launch` / `status` / `text` / `eval` / `shot` / `close`、`STATE=` / `PORT=` / `PROFILE=`）与 `browser/lib/` 的实现一致。**没有脚本读 persona 文本**，所以本用例靠对抗评审：评审者当场跑 `cd browser && node cli.mjs help` 读出实际命令清单，再拿 persona 里出现的每个命令名与输出行逐项对照，多一个少一个都不算过 | R14 | `[评]` |
-| SV10 | 委派一律后台 | 不存在"阻塞等待某个委派"的措辞 | R18 | `[评]` |
+| SV10 | 委派一律后台 | 不存在"阻塞等待某个委派"的措辞，也不存在"用 `pwsh` 睡眠 / 轮询等委派跑完"的措辞（派完即结束本轮） | R18 | `[评]` |
 | SV11 | 通知那一段 | 子代理侧只有一条单向 `notify_user` 提醒（它是 `BUILTIN_DENY` 之外**刻意可给**的例外），且技能仍要求把"需要用户人工介入"写进最终结果报回调度者（调度 persona 里已不再有这条，改由技能与 `notify/design.md` 承担） | R20 | `[评]` |
 | SV12 | `suffix` 未使用 | 组合文本里没有 `suffix:` 字段行；`- id: persona` 整行仍在（删整行会让 global 层那句 `Your working directory is …` 重新显形） | 「SchedulerPersona」 | `[机检]` + `[评]` |
 | BV1 | 真实挂载 | `agentPresets.resolve('adg')` 的 `.broken` 为空，且名册与委派行的形状符合根 `README.md` 的「真实挂载验证」一节的判据 | `deployed → mounted` / I1 / I2 | `[人]` 真实挂载 |
