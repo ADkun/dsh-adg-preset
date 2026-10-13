@@ -36,7 +36,7 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 
 | # | 红线 | 理由 | 载体 |
 |---|---|---|---|
-| R1 | 禁止删掉、放宽或绕过内置 deny 名单（`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`）：调用方在 `tools` 里点名也不许进子代理的工具面。 | 这是本插件唯一的安全边界。前四个都能**再开子代理**（`agent` 是 preset 那条静态委派行的 toolName，子代理从祖先层继承得到它；`delegate` 是本插件的动态版；`workflow` / `ralph` 是编排引擎），一放就破坏"一跳可达"，孙代理对调度者不可见、不可 steer；后两个只认 live runtime root。`notify_user` **刻意不在名单里** —— 它是单向提醒，`notify/design.md` 与 `preset/design.md` 的 R20 明确允许给子代理用。 | `delegate/test/delegate.test.mjs` 的 D5；`delegate/lib/delegate.mjs` 的 `BUILTIN_DENY` |
+| R1 | 禁止删掉、放宽或绕过内置 deny 名单（`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`）：调用方在 `tools` 里点名也不许进子代理的工具面。 | 这是本插件唯一的安全边界。前四个都能**再开子代理**（`agent` 是 preset 那条静态委派行的 toolName，子代理从祖先层继承得到它；`delegate` 是本插件的动态版；`workflow` / `ralph` 是编排引擎），一放就破坏"一跳可达"，孙代理对调度者不可见、不可 steer；后两个只认 live runtime root。`notify_user` **刻意不在名单里** —— 它是单向提醒，`notify/design.md` 与 `preset/design.md` 的 R20 明确允许给子代理用。`ask_user` **也不在名单里**：它是本插件注册的第二个工具、子代理唯一的**提问通道**（owner 是派它的那个调度者），禁掉它子代理就又只能"单向喊一声 + 停手"，见 R13。 | `delegate/test/delegate.test.mjs` 的 D5（名单六个名字）与 D19（`ask_user` 不在名单里）；`delegate/lib/delegate.mjs` 的 `BUILTIN_DENY` |
 | R2 | 内置 deny 名单**必须与本次可用工具名求交**后再下发，禁止整体照发。 | 名单里可能含本 profile 未注册的名字（没装 `adg-permission` 就没有 `set_child_permission`），而平台 `tools.restrict()` 对 allow / deny 里的未知名一律抛错 —— 整次委派当场失败（根 `AGENTS.md` 红线 7 / 10 同源）。 | D2 的瘦 profile 断言 |
 | R3 | 禁止把未知名静默丢掉：剔除之后必须逐条写进 `tools_note`。 | 那是模型唯一能看见"我点名的名字没生效"的地方；静默丢弃会让它以为工具已经给下去了。 | D4 |
 | R4 | `run_code` 出现在 `tools` 里必须**当场抛错**（本仓库选定的口径，理由见 design.md 的 I5），不许剔除后继续。 | 平台对 allow 与 deny 两侧都为它抛错；放行会让调用方以为子代理能跑 PTC 程序。 | D6 |
@@ -48,6 +48,7 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 | R10 | 前台一次性路径（`background: false`）必须接管 `run.result` 的终局：不许让它变成 unhandled rejection，也不许把"已建立"写成"已跑完"。 | 本工具不等子代理跑完就返回，那个 run 没人 await；Node 默认会让 unhandled rejection 崩掉进程。故障走 `ctx.logger.warn` 如实报出。 | D10 |
 | R11 | 禁止解析 `jobs` 服务、禁止实现"后台一次性"路径；`kind` 的 enum 里那个 `background` 只为与平台词表一致，不许在描述或文档里承诺这条路。 | 本插件固定按 continuable 语义工作；没有 `jobs` 就没有一次性后台，硬拿回来只会把一条不存在的路径写进契约。 | design.md 的 I4；`delegate/lib/delegate.mjs` |
 | R12 | 禁止在工具描述或文档里把 persona 说成"在子代理原有 persona 上追加"。 | 平台把它注册成该子代理上的 scoped `deployment:persona-prefix` 段，是**遮蔽**该子代理的部署 persona。 | design.md 的 I7（含**未观测**的量法） |
+| R13 | `ask_user` 的 owner 必须是**派它的那个调度者**（按配对表取回 id、用 `agents.get(id)` 换成活着的那个 Agent 实例）；取不到就**抛错**，禁止退回"以子代理自己的名义问"。 | 用户提问服务在带 agent 时只认 live runtime root：子代理自己问拿 `DELEGATED_CALLER` —— 那不是"问不到人"，而是"看起来问过了却没人能答"。同一性要求（`agents.get(id) === agent`）决定了不能用 id 或快照顶替，dsh 重启后配对表的旧条目也不作数。 | `delegate/test/delegate.test.mjs` 的 D15 / D17 / D20；`delegate/lib/delegate.mjs` 的 `resolveAskOwner` / `createOwnerIndex` |
 
 ## 跨模块路由
 

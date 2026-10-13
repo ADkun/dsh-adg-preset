@@ -38,6 +38,14 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 | D11 | `readRestrictableNames` | `view` 不是函数 / 返回 `{}` / 返回空 `Set` ⇒ 三种都抛错且零服务调用；形状对了返回 `Set` | I6 | D11 |
 | D12 | 三个源文件 + `package.json` | 入口三件套在位；`name` = patch 的 `id` = 包名；`type` / `main` / `dsh.bundle.patch` 正确；**没有** `dependencies`；纯逻辑层零 `import`；两个源文件里没有盘符绝对路径与用户根 | I11 | D12 |
 | D13 | 真 `defineTool` 编出的定义 | 在假服务上跑通一次完整调用，`output.render` 出一行含 id 与人话的文本 | — | D13 |
+| D14 | `createAskUserTool()` 用**真的** `defineTool` | `questions` 收成顶层 `required`、每项在属性上必填 `id` / `question`；`asked_as` 是 `self` / `scheduler` 两值枚举；**定义里没有 `timeoutMs`** | I12 / I15 | D14 |
+| D15 | `askUser` + 假 `agents` / `userQuestions` | 子代理调用 ⇒ 交给 `userQuestions.ask` 的 `agent` 是**配对表里那个调度者**、`asked_as: 'scheduler'`；返回值是脱拷贝的新数组/新对象（改它不影响服务那边的引用） | I13 / I14 | D15 |
+| D16 | 同上 | 调度者自己调用（配对表里没有它）⇒ `agent` 就是它自己、`asked_as: 'self'`；`multi_select` 映射成 `multiSelect`，没给时请求里**没有**这个键 | I13 / I14 | D16 |
+| D17 | 同上 | `agents.get(ownerId)` 回 `undefined`、或根本没有 `agents` 服务 ⇒ **抛错**，且 `userQuestions.ask` **零调用**（绝不降级成以子代理自己的名义问） | I13 | D17 |
+| D18 | `questionRequest` / `answerResult` | 空数组、空 `id`、重复 `id`、缺 `question` 正文、服务没回 `answers` 数组 ⇒ 五种都抛错且消息说明"拿到了什么" | I14 | D18 |
+| D19 | `createOwnerIndex` / `BUILTIN_DENY` | 配对表只记「非空 childId + 有 id 的 parent」；`ask_user` 的名字**不在** `BUILTIN_DENY` 里（子代理必须有提问通道） | I12 | D19 |
+| D20 | `delegate` + 假 `subagents` | 两条派发路径（可续 / 前台一次性）都把 `(childId → 调用方)` 交给配对表，且用的是取回来的那个 id | I13 | D20 |
+| D21 | 真 `defineTool` 编出的 `ask_user` | 在假服务上跑通一次完整调用，`output.render` 出一行人话（含问了几个问题、以谁的名义） | — | D21 |
 
 **测试纪律**：造工具定义一律用**真的** `defineTool`（作者侧 schema 方言与 `output` 硬要求只有真实现判得了）；假件只替换服务、调用方与子代理运行时，**不**替换 schema 编译器。用例之间不共享可变状态，所以可以任意顺序、并发跑。
 
@@ -47,7 +55,7 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 
 ## 消费方契约测试
 
-消费方只有两处：preset 的调度 persona（调 `delegate`；本插件不要求 preset 写任何东西 —— `delegate` 是全局层工具名，不需要写进 preset 的委派行，也进不了任何一次委派的 `tools`：它在内置 deny 名单里），以及平台的委派运行时。对平台的每一条契约面都被一条用例钉住形状，改名或改形状会当场红：
+消费方有三处：preset 的调度 persona（调 `delegate`；本插件不要求 preset 写任何东西 —— `delegate` 是全局层工具名，不需要写进 preset 的委派行，也进不了任何一次委派的 `tools`：它在内置 deny 名单里）、**拿到 `ask_user` 的子代理**（它是这条提问通道的唯一调用者），以及**作答的人机界面**（卡片由客户端 `dsh-client-ui-user-questions` 渲染与回收，机制层看不到那一段）。对平台的每一条契约面都被一条用例钉住形状，改名或改形状会当场红：
 
 | 契约面 | 用例 |
 |---|---|
@@ -56,13 +64,16 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 | `ToolRestriction{allow?, deny?}` 的两侧下发与"只减不增"的用法 | D2 / D3 / D5 |
 | `SubagentStartRequest` 的键集（含"省略即没有"的 `persona`，以及**永不出现**的 `maxDepth`） | D8 / D9 |
 | `tools.view(agent).restrictableNames`（含读不出时的 fail-closed 分支） | D11 |
-| `defineTool` 的作者侧 parameters 方言与 output 对象根方言 | D1 / D13 |
+| `UserQuestionService.ask({questions, agent, signal})` 的请求形状与 `{answers}` 结果 | D15 / D16 / D18 |
+| `AgentRegistry.get(id)` 的活实例同一性（取不到 ⇒ 抛错，且不问） | D17 |
+| `defineTool` 的作者侧 parameters 方言与 output 对象根方言（两条工具各编一遍） | D1 / D13 / D14 / D21 |
 
 ## 验证 ≠ 装载
 
 - **能证明的**：工具计划、请求装配、两条派发路径的分支、错误口径、入口与 bundle 的形状、零依赖。
-- **证明不了的**：`delegate/cordis.patch.yml` 能被 loader 装载；`delegate` 真出现在调度者的工具面里；子代理真的按这次的 `toolFilter` 与 `persona` 建立。
+- **证明不了的**：`delegate/cordis.patch.yml` 能被 loader 装载；`delegate` 与 `ask_user` 真出现在调度者 / 子代理的工具面里；子代理真的按这次的 `toolFilter` 与 `persona` 建立；`ask_user` 的卡片真落在调度者会话里、用户作答后答复真回到子代理（后两个假件与客户端渲染那一段）。
 - **一条很容易踩的假证据**：用例里的 `subagents` 是假件 —— "D9 通过"只说明本插件**交给平台的 spec 形状**对，不说明平台接受了它。provider 是否声明了 `toolFilter` / `persona` 能力、`restrict()` 是否放行那批名字，只有真实挂载（或一次真委派）能观测。
+- **第二条同样的假证据**：用例里的 `agents` / `userQuestions` 也是假件 —— "D15 通过"只说明**请求形状**对；用户提问服务的 `assertLiveRoot` 同一性判定、卡片的渲染与回收、答复走的耐久路径，只有真会话能观测。
 
 ## 人工 review 项
 
@@ -72,6 +83,8 @@ cd delegate && node --test --test-isolation=none test  # DSH 沙箱（workspace-
 **未观测**：persona 的遮蔽净效果；量法：真派一次带 persona 的子代理，读它会话日志里的 `deployment:persona-prefix` 段，确认部署 persona 没有残留。
 **未观测**：前台一次性路径的终局（本工具不等待）；量法：`background: false` 真派一次，确认子代理在 `subagent/catalog` 里出现并自行收尾；若发生基建故障，日志里应能找到那条 `warn`。
 **未观测**：并发多条委派时对照表读数的稳定性；量法：并发派两条，断言两条的 `tools` / `tools_note` 一致。
+**未观测**：`ask_user` 的登录墙端到端链路（子代理开有头窗口 → 直接问用户 → 用户在卡片上作答 → 答复回到子代理 → 它自己复核登录态并继续）；量法：在真站点登录墙前派一次带 `ask_user` 的浏览器委派，读转写：它这一轮调的是 `ask_user` 还是 `notify_user`、卡片落在哪个会话、拿到答复后有没有先复核登录态再继续。
+**未观测**：配对表跨越 dsh 重启 / 子代理被 `send_message` 续起之后还能不能取到活着的调度者（预期：重启后旧条目查不到活实例 ⇒ 抛错；续起同一进程内的子代理 ⇒ 仍能问）；量法：派一个带 `ask_user` 的子代理，让它先只报一句、用 `send_message` 续起后再问一次，观察是 `asked_as: 'scheduler'` 还是那条"委派你的调度者此刻不是活着的会话"。
 
 ## 交付前的最小闭环
 
@@ -80,4 +93,4 @@ cd delegate && node --test test
 cd delegate && node --test --test-isolation=none test
 ```
 
-两条全绿即机制层通过。`node tools/check-preset.mjs` 与四条 `tools/check-bundle-flavor.mjs` 断言验的是 preset 源文件与产物，**不在本模块的闭环里**；但改了 `delegate/lib/delegate.mjs` 的 `BUILTIN_DENY` 就该跑一次 `node tools/check-preset.mjs` —— 它的 5c 块会从本模块抠那个数组的**字面量**判名字在不在（缺 `agent` / `delegate` ⇒ ERROR）。装载层的复核按 [AGENTS.md](AGENTS.md) 的「生效方式」一节做。
+两条全绿即机制层通过。`node tools/check-preset.mjs` 与四条 `tools/check-bundle-flavor.mjs` 断言验的是 preset 源文件与产物，**不在本模块的闭环里**；但改了 `delegate/lib/delegate.mjs` 的 `BUILTIN_DENY`（或改了 `adg-delegate` 注册的工具名）就该跑一次 `node tools/check-preset.mjs` —— 它的 5c 块会从本模块抠那个数组的**字面量**判名字在不在（缺 `agent` / `delegate` ⇒ ERROR；`ask_user` 出现在字面量里 ⇒ ERROR，见 `MUST_BE_AVAILABLE_TO_CHILDREN`）。装载层的复核按 [AGENTS.md](AGENTS.md) 的「生效方式」一节做。

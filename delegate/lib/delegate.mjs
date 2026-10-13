@@ -1,5 +1,6 @@
 // adg-delegate 的纯逻辑层：本次工具计划（内置 deny / 未知名剔除 / PTC 保留名拒绝）、
-// 委派请求装配、以及「可续后台」与「前台一次性」两条派发路径。
+// 委派请求装配、「可续后台」与「前台一次性」两条派发路径，以及**子代理的提问通道**
+// （`ask_user`：把子代理的问题以派它的那个调度者的名义问出去，见文件末尾一节）。
 //
 // 这里**零 import**：不碰 cordis、不碰文件系统、不碰真会话对象 —— 全是可离线单测的纯函数
 // （唯一例外 `readRestrictableNames`，它只读调用方 ctx 上的工具视图，喂假对象同样成立）。
@@ -8,6 +9,14 @@
 
 /** 工具名：全 DSH 内唯一；调度 persona 里写的就是这个字符串。 */
 export const TOOL_NAME = 'delegate';
+
+/**
+ * 工具名：**子代理**的提问通道。平台自带的 `ask_user_question` 只认 live runtime root
+ * （子代理调它拿 `DELEGATED_CALLER`），本工具补的就是这一格：子代理调它，问题以
+ * **派它的那个调度者**的名义进 `user-questions/request`，于是问题卡片落在用户与调度者
+ * 对话的那个会话里 —— 用户答完，子代理当场接着干。
+ */
+export const ASK_TOOL_NAME = 'ask_user';
 
 /** 子代理 provider 名：与 preset 那条唯一委派行用的同一个（`provider: spawn`）。 */
 export const SUBAGENT_PROVIDER = 'spawn';
@@ -27,9 +36,12 @@ export const SUBAGENT_KINDS = Object.freeze(['continuable', 'background', 'foreg
  * 后两个只认 live runtime root：
  * - `set_child_permission` / `ask_user_question`：子代理拿不到人类答主，也没有"自己派出去的子代理"这回事。
  *
- * 刻意**不在**名单里的：`notify_user`。它是单向、不阻塞的提醒，`notify/design.md` 与
- * `preset/design.md` 的 R20 明确允许"让拿到 `notify_user` 的它自己发一条单向提醒" ——
- * 后台子代理撞上登录墙时就该能自己第一时间喊人，不必等调度者中转。
+ * 刻意**不在**名单里的两个：
+ * - `notify_user`：单向、不阻塞的提醒，`notify/design.md` 与 `preset/design.md` 的 R20 明确允许
+ *   "让拿到 `notify_user` 的它自己发一条单向提醒"。
+ * - `ask_user`（本插件自己的第二个工具）：它**就是**给子代理用的提问通道 —— 子代理撞上登录墙
+ *   时直接问用户，问题卡片落在调度者的会话里（见本文件末尾与 design.md 的 I11）。
+ *   `ask_user_question` 仍然留在名单里：它只认 live runtime root，子代理调它只会拿 `DELEGATED_CALLER`。
  */
 export const BUILTIN_DENY = Object.freeze([
   'agent',
@@ -50,12 +62,13 @@ export const RESERVED_PTC_NAME = 'run_code';
 /**
  * 调用方（调度）智能体。没有它就没有"派出去"这回事 —— 与平台 subagent 工具同一条口径。
  * @param {{agent?: object}} [exec] 工具执行上下文
+ * @param {string} [toolName] 报错时用的工具名（`ask_user` 与 `delegate` 共用这段断言）
  * @returns {object} 调用方 Agent
  */
-export function assertCallerAgent(exec) {
+export function assertCallerAgent(exec, toolName = TOOL_NAME) {
   const parent = exec?.agent;
   if (parent === undefined) {
-    throw new Error(`${TOOL_NAME}: 需要一个调用方智能体（exec.agent 是 undefined）`);
+    throw new Error(`${toolName}: 需要一个调用方智能体（exec.agent 是 undefined）`);
   }
   return parent;
 }
@@ -283,7 +296,7 @@ export function superviseOneShotRun(run, warn) {
  *
  * @param {{description: string, prompt: string, tools?: string[], persona?: string, background?: boolean}} args
  * @param {{agent?: object, signal?: AbortSignal}} exec 工具执行上下文
- * @param {{services?: () => object, warn?: (message: string) => void}} [deps]
+ * @param {{services?: () => object, warn?: (message: string) => void, rememberChild?: (childId: string, parent: object) => void}} [deps]
  * @returns {Promise<{description: string, subagent_id: string, kind: string, tools: string[], tools_note: string, persona: 'set'|'unset'}>}
  */
 export async function delegate(args, exec, deps = {}) {
@@ -302,13 +315,18 @@ export async function delegate(args, exec, deps = {}) {
       request,
       signal,
     });
-    return delegationResult(args, 'continuable', continuableChildId(started), plan);
+    const childId = continuableChildId(started);
+    // 留一条配对：子代理后来调 `ask_user` 时，靠它把问题以**你**的名义问出去（I11）。
+    deps.rememberChild?.(childId, parent);
+    return delegationResult(args, 'continuable', childId, plan);
   }
 
   const subagents = requireSubagents(deps);
   const run = await subagents.start(SUBAGENT_PROVIDER, { ...request, signal });
   superviseOneShotRun(run, deps.warn);
-  return delegationResult(args, 'foreground', foregroundRunId(run), plan);
+  const runId = foregroundRunId(run);
+  deps.rememberChild?.(runId, parent);
+  return delegationResult(args, 'foreground', runId, plan);
 }
 
 /**
@@ -349,4 +367,162 @@ function describeValue(value) {
   if (value instanceof Set) return `Set(size=${value.size})`;
   if (Array.isArray(value)) return `Array(length=${value.length})`;
   return typeof value;
+}
+
+// ── 子代理的提问通道（`ask_user`）────────────────────────────────────────────
+// 为什么需要它：平台的 `ask_user_question` 在带上调用者 agent 时只认 live runtime root
+// （`dsh-user-questions` 的 `assertLiveRoot`），被委派的子代理拿到的是 `DELEGATED_CALLER` ——
+// 「human interaction is unavailable while the calling agent is owned by another live agent;
+// include the unresolved question or decision in the child agent's final result」。
+// 于是登录墙 / 验证码这类**必须由人解决**的阻塞点只能靠调度者中转，或者靠子代理发一条
+// 单向通知 + 轮询。本工具把这条路修直：提问的 owner 用**派它的那个调度者**，
+// `user-questions/request` 就被 scope 到调度者的会话上，问题卡片出现在用户与调度者对话的
+// 那个会话里；用户答完，`ask()` 的 Promise 落地，子代理当场接着干。
+//
+// 边界（刻意如此）：本工具**不改平台源码**、不绕过 `assertLiveRoot` —— 它交给服务的就是一个
+// 真的 live runtime root（调度者），服务侧的每一条断言都照旧成立。
+
+/**
+ * 进程内的「子代理 → 派它的那个智能体」配对表。
+ *
+ * 本插件是全 DSH 里**唯一**的委派入口（preset 的 delegation 组只有一行，且子代理拿不到
+ * `delegate`），所以每一次委派的 childId 都在这里留一条：子代理后来调 `ask_user` 时，
+ * 靠它把问题以调度者的名义问出去。
+ *
+ * 表是进程内的：dsh 重启后旧配对丢失，那时子代理会拿到一条说清"问不到人、把未决问题写进
+ * 最终结果"的报错 —— 与它调 `ask_user_question` 得到的指引一致，不是死路。
+ *
+ * @returns {{remember: (childId: unknown, parent: object|undefined) => void, ownerIdOf: (childId: unknown) => string|undefined, size: () => number}}
+ */
+export function createOwnerIndex() {
+  const owners = new Map();
+  return {
+    remember(childId, parent) {
+      if (typeof childId !== 'string' || childId === '') return;
+      const ownerId = parent?.id;
+      if (typeof ownerId !== 'string' || ownerId === '') return;
+      owners.set(childId, ownerId);
+    },
+    ownerIdOf(childId) {
+      return typeof childId === 'string' ? owners.get(childId) : undefined;
+    },
+    size() {
+      return owners.size;
+    },
+  };
+}
+
+/**
+ * 这次提问该以谁的名义问。
+ *
+ * - 调用方是**调度者自己**（配对表里没有它 / owner 就是它）⇒ 以它自己的名义问（等价于
+ *   `ask_user_question` 的语义，`asked_as: 'self'`）。
+ * - 调用方是**被委派的子代理** ⇒ 交给派它的那个智能体（`asked_as: 'scheduler'`）——
+ *   问的是同一个人的同一个会话，只是 owner 换成了有权问的那个活 root。
+ *
+ * 拿不到 owner 的活实例就**抛错**，不悄悄退化成"以子代理自己的名义问"：那会当场撞
+ * `DELEGATED_CALLER`，报错反而离病灶更远。错误文本要自己说清下一步（把未决问题写进最终结果）。
+ *
+ * @param {object} caller 调用方 Agent（子代理或调度者）
+ * @param {string|undefined} ownerId 配对表里记的调度者 id
+ * @param {object|undefined} agents `agents` 服务（AgentRegistry）
+ * @returns {object} 提问时该传的 owner Agent
+ */
+export function resolveAskOwner(caller, ownerId, agents) {
+  if (ownerId === undefined || ownerId === caller.id) return caller;
+  if (agents === undefined || typeof agents.get !== 'function') {
+    throw new Error(
+      `${ASK_TOOL_NAME}: 需要 agents 服务（@deepseek-ai/dsh-agent 的 AgentRegistry）` +
+        `来把提问交还给委派你的那个智能体（owner ${ownerId}）`,
+    );
+  }
+  const owner = agents.get(ownerId);
+  if (owner === undefined) {
+    throw new Error(
+      `${ASK_TOOL_NAME}: 委派你的调度者（agent ${ownerId}）此刻不是活着的会话，问不到人 —— ` +
+        '把未决问题与可选项写进你的最终结果，让调度者去问用户。',
+    );
+  }
+  return owner;
+}
+
+/**
+ * 把模型给的问题翻译成用户提问服务的请求形状（与平台 `ask_user_question` 的翻译同形，
+ * 只多一个"owner 换成调度者"的参数）。
+ *
+ * 必填与唯一性在**这里**判：`ask()` 自己只判"至少一个问题"与重复 id，问题正文缺失会让
+ * 卡片显示成空白 —— 那是最难排查的一类失败，宁可当场抛错。
+ *
+ * @param {unknown} questions `args.questions`
+ * @param {object} agent 提问的 owner（`resolveAskOwner` 的结果）
+ * @param {AbortSignal|undefined} signal 工具调用被中断时用来取消等待
+ * @returns {object} `userQuestions.ask` 的请求
+ */
+export function questionRequest(questions, agent, signal) {
+  if (!Array.isArray(questions) || questions.length === 0) {
+    throw new Error(`${ASK_TOOL_NAME}: questions 至少要有 1 个问题`);
+  }
+  const seen = new Set();
+  const mapped = questions.map((question) => {
+    const id = question?.id;
+    if (typeof id !== 'string' || id === '') {
+      throw new Error(`${ASK_TOOL_NAME}: 每个问题都要有非空的字符串 id`);
+    }
+    if (seen.has(id)) {
+      throw new Error(`${ASK_TOOL_NAME}: 问题 id ${JSON.stringify(id)} 在这次调用里出现了两次`);
+    }
+    seen.add(id);
+    const text = question?.question;
+    if (typeof text !== 'string' || text.trim() === '') {
+      throw new Error(`${ASK_TOOL_NAME}: 问题 ${JSON.stringify(id)} 缺少 question 正文`);
+    }
+    return {
+      id,
+      question: text,
+      ...(question.header !== undefined ? { header: question.header } : {}),
+      ...(question.options !== undefined ? { options: question.options.map((option) => ({ ...option })) } : {}),
+      ...(question.multi_select !== undefined ? { multiSelect: question.multi_select } : {}),
+    };
+  });
+  return { questions: mapped, agent, signal };
+}
+
+/**
+ * 把服务返回的答案拷成模型可见的结果（**脱拷贝**：不把服务自己的数组交出去）。
+ * @param {unknown} result `userQuestions.ask` 的返回值
+ * @returns {{id: string, selected: string[], custom?: string}[]}
+ */
+export function answerResult(result) {
+  const answers = result?.answers;
+  if (!Array.isArray(answers)) {
+    throw new Error(`${ASK_TOOL_NAME}: 用户提问服务没有返回 answers 数组（got ${describeValue(answers)}）`);
+  }
+  return answers.map((answer) => ({
+    id: answer.id,
+    selected: [...answer.selected],
+    ...(answer.custom !== undefined ? { custom: answer.custom } : {}),
+  }));
+}
+
+/**
+ * 跑一次提问。抽出来同样是为了自测能直接喂假服务与假调用方。
+ *
+ * @param {unknown} questions `args.questions`
+ * @param {{agent?: object, signal?: AbortSignal}} exec 工具执行上下文
+ * @param {{services?: () => object, ownerIdOf?: (childId: string) => string|undefined}} [deps]
+ * @returns {Promise<{answers: {id: string, selected: string[], custom?: string}[], asked_as: 'self'|'scheduler'}>}
+ */
+export async function askUser(questions, exec, deps = {}) {
+  const caller = assertCallerAgent(exec, ASK_TOOL_NAME);
+  const services = deps.services?.() ?? {};
+  const owner = resolveAskOwner(caller, deps.ownerIdOf?.(caller.id), services.agents);
+  const userQuestions = services.userQuestions;
+  if (typeof userQuestions?.ask !== 'function') {
+    throw new Error(
+      `${ASK_TOOL_NAME}: 需要 userQuestions 服务（@deepseek-ai/dsh-user-questions 的 UserQuestionService）` +
+        ' —— 这个 profile 没装工具化的用户提问链路',
+    );
+  }
+  const result = await userQuestions.ask(questionRequest(questions, owner, exec?.signal));
+  return { answers: answerResult(result), asked_as: owner.id === caller.id ? 'self' : 'scheduler' };
 }

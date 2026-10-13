@@ -110,6 +110,24 @@ last_reviewed: 2026-10-05
 `delegate/index.mjs` 的 `export const name`（`adg-delegate`）= `delegate/cordis.patch.yml` 的 insert 行 `id`；包名同值。global 层重名注册会让整个 profile 的插件加载失败 ⇒ preset 里禁止再插同名行。
 载体：D12；`node tools/check-preset.mjs`。
 
+**I12 子代理必须有一条提问通道，但内置 deny 名单一个名字都不动。**
+本插件注册第二条工具 `ask_user`（`ASK_TOOL_NAME`），它与 `delegate` 一样只给调度者与子代理两面可用；平台的 `ask_user_question` **仍然在 `BUILTIN_DENY` 里**（它是 preset 注册给调度者的那条，只认 live runtime root）。理由：子代理撞上登录墙 / 验证码 / 必须有人拍板的岔路时，唯一的出路要么是"停手 + 等重派"，要么是"单向喊一声"。`ask_user` 把这条路走通，而**不**绕过平台源码 —— 它只是把一个真的 live root（派它的调度者）交给 `userQuestions.ask()`。
+载体：D19；`node tools/check-preset.mjs` 的 `MUST_BE_AVAILABLE_TO_CHILDREN`（`ask_user` 出现在 `BUILTIN_DENY` 里即判 ERROR）。
+
+**I13 owner 是"派它的那个调度者"，取不到活实例就抛错 —— 绝不降级。**
+本插件在建立子代理时把 `(childId → 调度者)` 记进一个闭包 `Map`（`createOwnerIndex()`），`ask_user` 调用时按 `exec.agent.id` 取回 owner 的 **id**，再用 `ctx.get('agents').get(id)` 换成**活着的那个 Agent 实例**（用户提问服务的 `assertLiveRoot` 要求 `agents.get(id) === agent` 的精确同一性，不能用 id 或快照顶替）。dsh 重启、配对丢失、或 agents 服务缺失时，**抛错**并让子代理把未决问题与可选项写进最终结果 —— 不退回"以子代理自己的名义问"（那会拿 `DELEGATED_CALLER`，只会把失败包装成另一种失败）。
+理由：一个"问不到人但看起来问过了"的路径比没有这条路径更坏。
+载体：D15 / D17 / D20；`resolveAskOwner()`。
+
+**I14 问题与答案的形状当场校验，坏值一律抛错。**
+问题至少 1 个；每个要有非空字符串 `id`；同一次调用里 id 不许重复；`question` 正文不许空白；`multi_select`（蛇形）映射成平台的 `multiSelect`（驼峰），没给就不带这个键；答案是脱拷贝的新数组/新对象（不把服务返回的引用交出去）。服务没回 `answers` 数组时报出"拿到了什么"。
+理由：这些坏值都会在**用户已经看到卡片之后**才让答复落不下来。
+载体：D14 / D16 / D18。
+
+**I15 `ask_user` 刻意不设 `timeoutMs`。**
+等的是人去登录 / 过验证码 / 拍板，可以等几分钟到几十分钟；平台对工具调用**没有**默认超时（`defineTool` 的 `timeoutMs` 省略即不声明），这也是平台自带的 `ask_user_question` 能无限等答复的前提。`isConcurrencySafe: false` —— 它改的是"这次调用有没有拿到答复"这件事本身。
+载体：D14（定义里没有 `timeoutMs`）；对照 `delegate` 的 `timeoutMs: 15000`（那边只等建立与投递）。
+
 ## 对外接口
 
 **模型面（工具契约）**
@@ -123,14 +141,25 @@ last_reviewed: 2026-10-05
 | 并发 | `isConcurrencySafe: () => true` —— 只建立会话并投递，不改既有状态（实参不成立时平台那层包装会保守地回 `false`） |
 | 超时 | `timeoutMs: 15000` —— 只等"建立 + 投递"（可续 = 子代理 inbox 接受初始 prompt；前台 = 子代理被发布）。比 `permission/` 的 30 秒小，因为那边等的是另一个会话的一次完整读写往返 |
 
+**模型面（第二条工具：`ask_user`）**
+
+| 项 | 值 |
+|---|---|
+| 名字 | `ask_user`（`ASK_TOOL_NAME`；与平台的 `ask_user_question` **不是一个东西**） |
+| 参数 | `questions` ✱（数组，至少 1 个；每项 `id` ✱ / `question` ✱ / `header?` / `options?`（`{label, description?}`[]）/ `multi_select?`） |
+| 输出 | `answers`（`{id, selected: string[], custom?}[]`，脱拷贝）/ `asked_as`（`self` \| `scheduler`） |
+| render | 一行：问出去了几个问题、以谁的名义（`asked_as`） |
+| 并发 | `isConcurrencySafe: false` —— 它问的就是"这一次调用有没有拿到答复" |
+| 超时 | **不设** `timeoutMs`（I15）：等的是人 |
+
 **库接口（`delegate/lib/delegate.mjs`，零 import）**
 
-常量：`TOOL_NAME` / `SUBAGENT_PROVIDER`（`'spawn'`）/ `SUBAGENT_KINDS` / `BUILTIN_DENY` / `RESERVED_PTC_NAME`（`'run_code'`）。
-函数：`assertCallerAgent(exec)` / `readRestrictableNames(parent)` / `planToolFilter(requested, knownNames)` / `toolsNote(plan)` / `buildRequest(args, parent, filter)` / `continuableChildId(started)` / `foregroundRunId(run)` / `superviseOneShotRun(run, warn)` / `delegate(args, exec, deps)`。
+常量：`TOOL_NAME` / `ASK_TOOL_NAME` / `SUBAGENT_PROVIDER`（`'spawn'`）/ `SUBAGENT_KINDS` / `BUILTIN_DENY` / `RESERVED_PTC_NAME`（`'run_code'`）。
+函数：`assertCallerAgent(exec)` / `readRestrictableNames(parent)` / `planToolFilter(requested, knownNames)` / `toolsNote(plan)` / `buildRequest(args, parent, filter)` / `continuableChildId(started)` / `foregroundRunId(run)` / `superviseOneShotRun(run, warn)` / `delegate(args, exec, deps)`；提问通道另有 `createOwnerIndex()` / `resolveAskOwner(caller, ownerId, agents)` / `questionRequest(questions, agent, signal)` / `answerResult(result)` / `askUser(questions, exec, deps)`。
 
 **装配接口（`delegate/index.mjs`）**
 
-`name` / `inject` / `TOOL_NAME` / `createDelegateTool(deps)` / `apply(ctx)`；`deps = {defineTool?, services?, warn?}` —— `services()` 只回 `{subagents}`，`warn` 指到 `ctx.logger.warn`。
+`name` / `inject` / `TOOL_NAME` / `ASK_TOOL_NAME` / `createDelegateTool(deps)` / `createAskUserTool(deps)` / `apply(ctx)`；`deps = {defineTool?, services?, warn?, ownerIndex?}` —— `services()` 回 `{subagents, agents, userQuestions}`（后两个在**调用那一刻**才取），`warn` 指到 `ctx.logger.warn`，`ownerIndex` 缺省由 `apply` 建一个 `createOwnerIndex()`（配对表就活在这个闭包里）。
 
 ## 非功能红线
 

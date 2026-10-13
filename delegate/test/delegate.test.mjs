@@ -15,19 +15,25 @@ import { fileURLToPath } from 'node:url';
 
 import { defineTool } from '@deepseek-ai/dsh-tools';
 
-import { createDelegateTool } from '../index.mjs';
+import { createAskUserTool, createDelegateTool } from '../index.mjs';
 import {
+  ASK_TOOL_NAME,
   BUILTIN_DENY,
   RESERVED_PTC_NAME,
   SUBAGENT_KINDS,
   SUBAGENT_PROVIDER,
   TOOL_NAME,
+  answerResult,
+  askUser,
   assertCallerAgent,
   buildRequest,
+  createOwnerIndex,
   delegate,
   foregroundRunId,
   planToolFilter,
+  questionRequest,
   readRestrictableNames,
+  resolveAskOwner,
   superviseOneShotRun,
   toolsNote,
 } from '../lib/delegate.mjs';
@@ -482,4 +488,184 @@ test('D13 真 defineTool 编出的定义能在假服务上跑通一次完整调�
   assert.equal(rendered[0].type, 'text');
   assert.match(rendered[0].text, /child-session-1/);
   assert.match(rendered[0].text, /只保留 1 个：Read/);
+});
+
+// ── ask_user（I11）：子代理的提问通道 ────────────────────────────────────────
+// 这几条测的是本插件对平台边界的那一处**绕行**：平台只准 live runtime root 提问
+// （子代理调 `ask_user_question` 拿 `DELEGATED_CALLER`），所以提问的 owner 换成派它的那个人。
+// 关键词：交出去的一定是**调度者**这个活实例，拿不到就抛错而不是降级成"以子代理名义问"。
+
+test('D14 ask_user 的定义能用真 defineTool 编出来（参数在属性上必填，two 值枚举的 asked_as）', () => {
+  const definition = createAskUserTool();
+
+  assert.equal(definition.name, ASK_TOOL_NAME);
+  assert.equal(ASK_TOOL_NAME, 'ask_user');
+
+  assert.deepEqual(definition.parameters.required, ['questions']);
+  assert.equal(definition.parameters.properties.questions.type, 'array');
+  assert.equal(definition.parameters.properties.questions.items.type, 'object');
+  assert.deepEqual(definition.parameters.properties.questions.items.properties.id, {
+    type: 'string',
+    description: '稳定 id；答案按它回显。',
+  });
+  assert.deepEqual(definition.parameters.properties.questions.items.required, ['id', 'question']);
+  assert.equal(definition.parameters.properties.questions.items.properties.multi_select.type, 'boolean');
+
+  assert.equal(definition.output.schema.additionalProperties, false);
+  assert.deepEqual(definition.output.schema.required, ['asked_as', 'answers']);
+  assert.deepEqual(definition.output.schema.properties.asked_as.enum, ['scheduler', 'self']);
+
+  // 它等的是人：声明成"同一次里不许并发"，且**刻意不设** timeoutMs（等的是人去登录，不是秒级动作）
+  assert.equal(definition.isConcurrencySafe({ questions: [{ id: 'q1', question: '好了吗' }] }), false);
+  assert.equal(definition.timeoutMs, undefined);
+});
+
+test('D15 子代理调用 ⇒ 以派它的那个调度者为 owner 问出去，答案是脱拷贝的', async () => {
+  const parent = { id: 'scheduler-1' };
+  const child = { id: 'child-session-1' };
+  const asked = [];
+  const userQuestions = {
+    async ask(request) {
+      asked.push(request);
+      return { answers: [{ id: 'login', selected: ['好了'], custom: undefined }] };
+    },
+  };
+  const agents = { get: (id) => (id === 'scheduler-1' ? parent : undefined) };
+
+  const out = await askUser(
+    [{ id: 'login', question: '登录好了吗？', header: '登录', options: [{ label: '好了', description: '我已在窗口里登录' }] }],
+    { agent: child, signal: undefined },
+    { services: () => ({ agents, userQuestions }), ownerIdOf: () => 'scheduler-1' },
+  );
+
+  assert.equal(out.asked_as, 'scheduler');
+  assert.equal(asked.length, 1);
+  assert.equal(asked[0].agent, parent, 'agent 必须是调度者那个活实例，不是子代理');
+  assert.deepEqual(asked[0].questions, [
+    { id: 'login', question: '登录好了吗？', header: '登录', options: [{ label: '好了', description: '我已在窗口里登录' }] },
+  ]);
+  // 没写的键不许凭空出现（`multi_select` → `multiSelect` 只在给了的时候带）
+  assert.ok(!('multiSelect' in asked[0].questions[0]));
+  assert.deepEqual(out.answers, [{ id: 'login', selected: ['好了'] }]);
+});
+
+test('D16 调度者自己调用 ⇒ owner 就是自己（asked_as: self），multi_select 映射成 multiSelect', async () => {
+  const parent = { id: 'scheduler-1' };
+  const asked = [];
+  const userQuestions = { ask: async (request) => (asked.push(request), { answers: [{ id: 'q', selected: ['继续'] }] }) };
+
+  const out = await askUser(
+    [{ id: 'q', question: '继续吗？', multi_select: true }],
+    { agent: parent },
+    { services: () => ({ agents: { get: () => undefined }, userQuestions }), ownerIdOf: () => undefined },
+  );
+
+  assert.equal(out.asked_as, 'self');
+  assert.equal(asked[0].agent, parent);
+  assert.equal(asked[0].questions[0].multiSelect, true);
+});
+
+test('D17 拿不到调度者的活实例 ⇒ 抛错且**不**去问（绝不降级成以子代理名义问）', async () => {
+  const child = { id: 'child-session-1' };
+  let asked = 0;
+  const userQuestions = { ask: async () => (asked += 1, { answers: [] }) };
+
+  await assert.rejects(
+    () =>
+      askUser([{ id: 'q', question: 'x' }], { agent: child }, {
+        services: () => ({ agents: { get: () => undefined }, userQuestions }),
+        ownerIdOf: () => 'scheduler-gone',
+      }),
+    /不是活着的会话/,
+  );
+  assert.equal(asked, 0);
+
+  // agents 服务没挂载也一样：不猜、不降级
+  assert.throws(() => resolveAskOwner(child, 'scheduler-1', undefined), /需要 agents 服务/);
+
+  // userQuestions 服务没挂载 ⇒ 说清是缺哪条链路，而不是"不可用"三个字
+  await assert.rejects(
+    () => askUser([{ id: 'q', question: 'x' }], { agent: child }, { services: () => ({}), ownerIdOf: () => undefined }),
+    /需要 userQuestions 服务/,
+  );
+});
+
+test('D18 问题与答案的形状当场校验（空数组 / 空 id / 重复 id / 缺正文 / 服务没给 answers）', () => {
+  const parent = { id: 'p' };
+
+  assert.throws(() => questionRequest(undefined, parent), /至少要有 1 个问题/);
+  assert.throws(() => questionRequest([], parent), /至少要有 1 个问题/);
+  assert.throws(() => questionRequest([{ question: 'x' }], parent), /非空的字符串 id/);
+  assert.throws(() => questionRequest([{ id: 'a', question: 'x' }, { id: 'a', question: 'y' }], parent), /出现了两次/);
+  assert.throws(() => questionRequest([{ id: 'a', question: '   ' }], parent), /缺少 question 正文/);
+  assert.throws(() => answerResult({}), /没有返回 answers 数组/);
+  assert.throws(() => answerResult({ answers: undefined }), /没有返回 answers 数组/);
+
+  // 问题正文与选项都脱拷贝：服务拿到的是新对象，改它不会改调用方的数组
+  const source = { id: 'a', question: 'x', options: [{ label: 'l' }] };
+  const request = questionRequest([source], parent);
+  request.questions[0].options[0].label = 'changed';
+  assert.equal(source.options[0].label, 'l');
+
+  // 没有调用方智能体 ⇒ 抛错（与委托路径同一条前端约束）
+  assert.throws(() => assertCallerAgent({}, ASK_TOOL_NAME), /需要一个调用方智能体/);
+});
+
+test('D19 配对表只记成形的一对；ask_user 不许在 BUILTIN_DENY 里（子代理必须有提问通道）', () => {
+  const owners = createOwnerIndex();
+  assert.equal(owners.ownerIdOf('child-1'), undefined);
+
+  owners.remember('child-1', { id: 'scheduler-1' });
+  assert.equal(owners.ownerIdOf('child-1'), 'scheduler-1');
+
+  owners.remember('', { id: 'scheduler-1' }); // 空 childId 不记
+  owners.remember('child-2', {}); // 没有 id 的调用方不记
+  owners.remember('child-3', undefined);
+  assert.equal(owners.size(), 1);
+  assert.equal(owners.ownerIdOf(undefined), undefined);
+
+  // 这条是**红线级**的：禁掉 ask_user 就等于把子代理打回"单向喊一声 + 轮询"
+  assert.ok(!BUILTIN_DENY.includes(ASK_TOOL_NAME));
+  assert.ok(BUILTIN_DENY.includes('ask_user_question'), '平台那条仍要对子代理关闭');
+});
+
+test('D20 两条委派路径都把 (childId → 调度者) 交给配对表', async () => {
+  const parent = fakeParent();
+  const continuable = [];
+  await delegate(BASE_ARGS, { agent: parent }, {
+    services: () => ({ subagents: fakeSubagents() }),
+    rememberChild: (childId, owner) => continuable.push([childId, owner]),
+  });
+  assert.deepEqual(continuable, [['child-session-1', parent]]);
+
+  const foreground = [];
+  await delegate({ ...BASE_ARGS, background: false }, { agent: parent }, {
+    services: () => ({ subagents: fakeSubagents() }),
+    rememberChild: (childId, owner) => foreground.push([childId, owner]),
+  });
+  assert.deepEqual(foreground, [['run-session-1', parent]]);
+});
+
+test('D21 真 defineTool 编出的 ask_user 能在假服务上跑通一次完整调用并 render 出一行人话', async () => {
+  const parent = { id: 'scheduler-1' };
+  const asked = [];
+  const definition = createAskUserTool({
+    services: () => ({
+      agents: { get: (id) => (id === 'scheduler-1' ? parent : undefined) },
+      userQuestions: { ask: async (request) => (asked.push(request), { answers: [{ id: 'q1', selected: ['好了'] }] }) },
+    }),
+    ownerIdOf: () => 'scheduler-1',
+  });
+
+  const value = await definition.execute(
+    { questions: [{ id: 'q1', question: '登录好了吗？', options: [{ label: '好了' }] }] },
+    { agent: { id: 'child-1' } },
+  );
+
+  assert.equal(value.asked_as, 'scheduler');
+  assert.equal(asked[0].agent, parent);
+  const rendered = definition.output.render({}, value);
+  assert.equal(rendered[0].type, 'text');
+  assert.match(rendered[0].text, /scheduler/);
+  assert.match(rendered[0].text, /好了/);
 });
