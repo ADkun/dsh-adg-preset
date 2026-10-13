@@ -94,6 +94,10 @@ const KNOWN_TOOLS = new Set([
   'delegate',
   // remaining model-facing rows
   'ask_user_question',
+  // adg-delegate 的 `ask_user`：**子代理**的提问通道。平台自带的 `ask_user_question` 只认
+  // live runtime root（子代理调它拿 `DELEGATED_CALLER`），所以那一格由本仓库补 —— 问题以
+  // 派它的那个调度者为 owner 进用户提问服务，卡片落在用户的会话里（delegate/design.md 的 I11）。
+  'ask_user',
   'todo_write',
   'web_search',
   'web_fetch',
@@ -331,6 +335,12 @@ const EXPECTED_DENIED_FOR_CHILDREN = new Set([
  */
 const SHOULD_STAY_AVAILABLE = new Set(['notify_user'])
 
+/**
+ * **必须**留给子代理的：`ask_user` 是子代理唯一的提问通道（登录墙 / 验证码 / 要人拍板时用）。
+ * 它出现在 `BUILTIN_DENY` 里 = 子代理又只能"单向喊一声 + 轮询"，那正是这次改造要去掉的东西 —— 判 ERROR。
+ */
+const MUST_BE_AVAILABLE_TO_CHILDREN = new Set(['ask_user'])
+
 // ── 5. 通用委派行 ──────────────────────────────────────────────────────────
 for (const [index, line] of lines.entries()) {
   const generic = /^\s+toolName:\s*(subagent|subagent_fork)\s*$/.exec(line)
@@ -369,6 +379,11 @@ for (const [index, line] of lines.entries()) {
       for (const tool of SHOULD_STAY_AVAILABLE) {
         if (denied.has(tool)) {
           warn(`delegate/lib/delegate.mjs 的 BUILTIN_DENY 里有 "${tool}"：它是单向、不阻塞的提醒，\`notify/design.md\` 的「对外接口」与 \`preset/design.md\` 的 R20 允许子代理用它 —— 禁掉会让那条承诺变成假话`)
+        }
+      }
+      for (const tool of MUST_BE_AVAILABLE_TO_CHILDREN) {
+        if (denied.has(tool)) {
+          fail(`delegate/lib/delegate.mjs 的 BUILTIN_DENY 里有 "${tool}"：它是子代理**唯一**的提问通道（登录墙 / 验证码 / 要人拍板时用），禁掉就等于把子代理打回"单向喊一声 + 轮询"（见 preset/design.md 的 I17 与 delegate/design.md 的 I11）`)
         }
       }
     }

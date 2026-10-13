@@ -7,7 +7,7 @@ last_reviewed: 2026-10-05
 
 ## 职责与边界
 
-负责：对 `preset/agent.cordis.yml`（**仓库里的这一份就是唯一文本真相源**，没有"已安装的第二份文本"）做**零依赖的逐行静态扫描**，把"这些硬约束在文本上被破坏"的情形提前拦下来——行尾 / 末尾换行 / BOM、`delegation` 组里恰好一条委派行（形如 `    - id: agent`：4 空格缩进、`id` 以 `agent` 开头，不匹配的行会被解析器静默跳过）、该行字段齐全且 `toolName` 全局唯一、`allow`（若写）只写已注册工具名、不存在通用委派行、调度 persona 的「你手上的子代理」段提到的委派工具名与那条唯一的 `- id: agent` 委派行一一对应、`adg-delegate` 的 `BUILTIN_DENY` 覆盖六个入口（`agent` / `delegate` 缺 ⇒ ERROR；`workflow` / `ralph` / `set_child_permission` / `ask_user_question` 缺 ⇒ WARN；`notify_user` 出现在名单里 ⇒ WARN）、承载三组体积旋钮的三行结构完好（含"万一某键被写回时"的合法性）、**构建期注入组的名字没有被手写进源文件**；并在 stdout 打印两行生效值摘要。
+负责：对 `preset/agent.cordis.yml`（**仓库里的这一份就是唯一文本真相源**，没有"已安装的第二份文本"）做**零依赖的逐行静态扫描**，把"这些硬约束在文本上被破坏"的情形提前拦下来——行尾 / 末尾换行 / BOM、`delegation` 组里恰好一条委派行（形如 `    - id: agent`：4 空格缩进、`id` 以 `agent` 开头，不匹配的行会被解析器静默跳过）、该行字段齐全且 `toolName` 全局唯一、`allow`（若写）只写已注册工具名、不存在通用委派行、调度 persona 的「你手上的子代理」段提到的委派工具名与那条唯一的 `- id: agent` 委派行一一对应、`adg-delegate` 的 `BUILTIN_DENY` 覆盖六个入口（`agent` / `delegate` 缺 ⇒ ERROR；`workflow` / `ralph` / `set_child_permission` / `ask_user_question` 缺 ⇒ WARN）、`ask_user` 必须留在可给名单里（`MUST_BE_AVAILABLE_TO_CHILDREN`：它出现在 `BUILTIN_DENY` 里 ⇒ ERROR —— 那是子代理唯一的提问通道，被禁就等于把它打回"单向喊一声 + 轮询"）、`notify_user` 出现在名单里 ⇒ WARN、承载三组体积旋钮的三行结构完好（含"万一某键被写回时"的合法性）、**构建期注入组的名字没有被手写进源文件**；并在 stdout 打印两行生效值摘要。
 
 不负责（逐条，防越权）：
 
@@ -126,7 +126,7 @@ last_reviewed: 2026-10-05
 - 禁止把"文本扫描通过"说成"挂载成功"（来源：`exit 0` 与真实挂载是两件事，静态扫描看不见包解析与 realm 发布）。
 - 禁止教人传"已安装的那一份"路径，也禁止把 `$DSH_HOME/bundles/` 或 `bundle/` 下的生成物当校验对象的真相源（来源：仓库里那份源文件是**唯一**文本真相源；生成物每次安装都被覆盖）。
 - 改 tool 行必须同步 `KNOWN_TOOLS`（来源：`restrict()` 实测抛 `names unknown global tool`——漏同步会让合法名字被误报，或让拼错的名字漏报）。
-- **`KNOWN_TOOLS` 里有名字不来自 preset 包本身时，必须同时核实"每个目标 profile 都装了供给它的那个包"。** 现役两个实例：`notify_user` 由本仓库第一方插件包 `adg-notify`（`notify/` 模块）、`delegate` 由 `adg-delegate`（`delegate/` 模块）在**全局层**注册（只有调度者拿得到）—— 两者都是 profile 级 `file:` 安装、顶层 `insert` 行落在全局层，所以 `restrict()` 认它们；`restrict()` 是**挂载期**判据——`allow` 写了名字、profile 却没装那个包，**每一次委派都抛 `names unknown global tool "notify_user"`**。当前前提成立：`install.ps1` / `install.sh` 在**同一次运行**里既部署并安装 `adg-notify` / `adg-delegate`、又生成并链接 preset bundle。**若将来把"装 bundle"与"装插件"拆成可分别跳过的两步，这条义务就变成真实缺陷**——那时要么回滚这些行，要么把插件安装变成硬前置。
+- **`KNOWN_TOOLS` 里有名字不来自 preset 包本身时，必须同时核实"每个目标 profile 都装了供给它的那个包"。** 现役三个名字：`notify_user` 由本仓库第一方插件包 `adg-notify`（`notify/` 模块），`delegate` 与 `ask_user` 由 `adg-delegate`（`delegate/` 模块）在**全局层**注册（`delegate` 只有调度者拿得到；`ask_user` 是给子代理的提问通道，owner 是派它的调度者）—— 都是 profile 级 `file:` 安装、顶层 `insert` 行落在全局层，所以 `restrict()` 认它们；`restrict()` 是**挂载期**判据——`allow` 写了名字、profile 却没装那个包，**每一次委派都抛 `names unknown global tool "notify_user"`**。当前前提成立：`install.ps1` / `install.sh` 在**同一次运行**里既部署并安装 `adg-notify` / `adg-delegate`、又生成并链接 preset bundle。**若将来把"装 bundle"与"装插件"拆成可分别跳过的两步，这条义务就变成真实缺陷**——那时要么回滚这些行，要么把插件安装变成硬前置。
 - 禁止在校验过程中写目标文件（来源：评审决定——校验器必须能在只读介质上跑）。
 
 ## For Agents
