@@ -846,7 +846,7 @@ Write-Host "  browser -> $browserNote"
 Write-Host "  desktop -> $desktopNote"
 Write-Host "  notify  -> $notifyNote（notify_user 工具；每个 profile 的安装结果见下面 profile 行）"
 Write-Host "  permission -> $permNote（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
-Write-Host "  delegate -> $delegateNote（delegate 工具 —— 现有的**唯一委派入口**；只有调度智能体拿得到，子代理的永禁名单里有 delegate / set_child_permission / ask_user_question / agent）"
+Write-Host "  delegate -> $delegateNote（delegate 工具 —— 现有的**唯一委派入口**；只有调度智能体拿得到，子代理的永禁名单里有 delegate / set_child_permission / ask_user_question / agent。同一枚插件还提供 ask_user —— 子代理的提问通道，可给子代理）"
 Write-Host "  settings -> $settingsNote（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
 foreach ($note in $installNotes) { Write-Host "  profile -> $note" }
 Write-Host ""

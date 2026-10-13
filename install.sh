@@ -830,7 +830,7 @@ for (const pair of pairs) {
 echo "  browser -> $browser_note"
 echo "  desktop -> $desktop_note"
 echo "  notify  -> $notify_note（notify_user 工具；每个 profile 的安装结果见上面 profile 行）"
-echo "  delegate -> $delegate_note（delegate 工具 —— 唯一的委派入口；只有调度智能体拿得到，子代理拿不到）"
+echo "  delegate -> $delegate_note（delegate 工具 —— 唯一的委派入口；只有调度智能体拿得到，子代理拿不到。同一枚插件还提供 ask_user —— 子代理的提问通道，可给子代理）"
 echo "  permission -> $permission_note（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
 echo "  settings -> $settings_note（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
 echo ""
