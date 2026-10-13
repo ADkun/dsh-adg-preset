@@ -12,7 +12,7 @@ last_reviewed: 2026-10-08
 不负责（逐条防越权）：
 
 - 不拥有"什么时候该通知用户"这个判断：撞上登录墙 / 验证码 / 二次验证 / 需要用户在本机动手或拍板时**由子代理自己决定**要不要调（触发面写在 `notify_user` 的 description 里）；本模块只负责"把话推出去"。
-- 不拥有用户问答通道：通知是**单向**的，弹出去就结束 —— 不阻塞、不等待回话、不投递任何回复。要用户**回答**问题仍然走 dsh 自己的会话：子代理停手、把未决问题写进最终结果，调度者用 `ask_user_question` 转达（被委派的子代理没有人类答主）。本模块不提供等待、回调、轮询。
+- 不拥有用户问答通道：通知是**单向**的，弹出去就结束 —— 不阻塞、不等待回话、不投递任何回复。人工介入的问答通道是 `adg-delegate` 的 `ask_user`：子代理调它时问题以**派它的那个调度者**为 owner 交给用户提问服务，卡片落在用户与调度者对话的那个会话里，用户答完答复直接回到子代理手上（见 `delegate/design.md` 的 I12 / I13）；本模块只做**单向补充** —— 用户看得见、回不了话，所以不能替代 `ask_user`。`ask_user` 走不通（拿不到调度者的活实例，或那次委派没给这个工具）时才退回「子代理把未决问题写进最终结果 → 调度者用 `ask_user_question` 问用户」。本模块不提供等待、回调、轮询。
 - 不拥有浏览器：浏览器能力（`skills/adg-browser-use` + `browser/` 工具链）撞上登录墙时"开一个有头窗口让人进去"是 `browser/` 的职责（见 `browser/design.md` 的「核心数据模型」一节），本模块不碰浏览器、不碰登录态。
 - 不拥有 preset 与工具目录：`notify_user` 进不进子代理的工具面由调度者**每次委派时**的 `delegate` `tools` 决定；本模块只保证"这个名字在全局层被注册"，不替调度者做工具面决策。
 - 不拥有 dsh 的插件装载：本模块给的是 `dsh.bundle.patch` + patch 行 + 一个能被解析的包；"profile 有没有选中它""运行期 loader 有没有 import 它"分别是 dsh 的 `reconcileProfilePlugins` 与 loader 的事 —— 本模块只能在安装脚本里**读回来断言**到"装了且被选中"这一层。
@@ -83,14 +83,14 @@ last_reviewed: 2026-10-08
 
 ## 对外接口
 
-- 工具：`notify_user` —— 参数 `message`（string，**必填**）/ `title`（string，可选）/ `silent`（boolean，可选）；`isConcurrencySafe: () => true`；`timeoutMs: 15000`；`output` 形状见 I13。description 写的是**触发面**：必须由人在本机完成的阻塞点（登录墙 / 验证码 / 二次验证 / 设备确认，或需要用户拍板、出示凭据、在本机操作某个窗口）；正文要写清「卡在哪 / 用户具体要做什么 / 完成后回来告诉我什么」，并明写"这是单向通知，不会阻塞、也不会等待用户回话：调用后立刻返回，用户是否看到不影响本步继续"，以及"用户不在电脑前时通知可能没被看到 —— 不要把它当成『已获得用户确认』，也不要用它代替 `send_message`"。
+- 工具：`notify_user` —— 参数 `message`（string，**必填**）/ `title`（string，可选）/ `silent`（boolean，可选）；`isConcurrencySafe: () => true`；`timeoutMs: 15000`；`output` 形状见 I13。description 写的是**触发面**：必须由人在本机完成的阻塞点（登录墙 / 验证码 / 二次验证 / 设备确认，或需要用户拍板、出示凭据、在本机操作某个窗口）；正文要写清「卡在哪 / 用户具体要做什么」，并明写"这是单向通知，不会阻塞、也不会等待用户回话：调用后立刻返回，用户是否看到不影响本步继续"，以及"用户不在电脑前时通知可能没被看到 —— 不要把它当成『已获得用户确认』，也不要用它代替 `send_message`"；要用户**回话**的一律用 `ask_user`（R11），通知正文里不许要求用户"回来告诉我"。
 - 命令行契约：`notify/cli.mjs` 的 `usage()` 是唯一真相源（子命令、选项、退出码都在那里）；在 `notify/` 里跑 `node cli.mjs help` 打印它。退出码：**0 = 已投递 / 1 = 没投出去（stderr 给原因）/ 2 = 用法错误**（与 `browser/cli.mjs`、`tools/check-preset.mjs` 的 0/1/2 同形）。这条命令只验证机制能不能弹，**不验证 dsh 有没有装载本插件**。
 - 库接口：`notify/index.mjs` 导出 `name`（= `adg-notify`）/ `inject`（= `['tools']`）/ `TOOL_NAME`（= `notify_user`）/ `createNotifyUserTool()` / `apply()`；`notify/lib/toast.mjs` 导出 `sendToast()` 与一组默认值常量（`DEFAULT_TITLE` / `DEFAULT_DISAPPEAR_AFTER_MS` / `DEFAULT_TIMEOUT_MS` / `DEFAULT_APP_ID` / `DEFAULT_SCRIPT_PATH` / `PACKAGE_ROOT` / `SOUND_VALUES` / `resolvePowershellPath()` / `normalizeNotification()` / `buildToastArgs()`）。`createNotifyUserTool(deps)` 的依赖可注入（`send` 默认 = `sendToast`），这是测试能在不弹窗的前提下覆盖注册与失败路径的原因。
 - 装配接口（指针化，取值以文件本身为准，本文不复制）：`notify/cordis.patch.yml` 声明 patch 行（`id` 与 `name` 都必须是 `adg-notify`，落全局层）；`notify/package.json` 声明 `main` / `exports` / `files`（进 profile 副本的清单）/ `scripts.test` / `dsh.bundle.patch` / 可选 peer 依赖。
 
 ## 非功能红线
 
-只列技能要求的四类。操作型红线集中在 `notify/AGENTS.md` 的「红线」一节（R1..R12），**那里是唯一清单**，本文件不再抄一份 —— 两份互相重复的清单正是同一条规定要改两处的来源。
+只列技能要求的四类。操作型红线集中在 `notify/AGENTS.md` 的「红线」一节（R1..R14），**那里是唯一清单**，本文件不再抄一份 —— 两份互相重复的清单正是同一条规定要改两处的来源。
 
 - **性能预算**：一次投递的上界＝工具 `timeoutMs` 与 `sendToast` 的超时（默认 15 秒），超时即 `child.kill()` + 抛错。**禁止在链路里做重试循环或等待用户回话** —— 那会把一次工具调用变成阻塞，与"单向、不阻塞"的接口语义冲突。来源：接口语义（I6）＋ Windows toast 是"投递完就返回"的机制。载体：[机检] 超时用例（D4）；[评] 读 `sendToast` 的控制流。
 - **一致性纪律**：**禁止把"没弹出去"写成"弹过了"**（I6 / R4）；**禁止把 `.ps1` 写成非 ASCII 或带 BOM**（I4 / R2）。来源：前者是这个工具唯一的价值所在（用户真的看到了）；后者是 Windows PowerShell 5.1 的 ANSI 解码行为。载体：[机检] D4 / D6 用例。
@@ -101,7 +101,7 @@ last_reviewed: 2026-10-08
 
 动手前先读：`notify/AGENTS.md` → 本文件 → 改工具契约再读 `tools/check-preset.mjs` 的 `KNOWN_TOOLS` 与 `delegate` 侧的名字口径。
 
-绝不能做：`notify/AGENTS.md` 的「红线」一节 R1..R12；本文件的 I2（发空通知）、I6（把失败当成功）、I7（同名两层注册）、I9（把"装 bundle"与"装插件"拆成可分别跳过的两步）、I11（以为改仓库源码会自动同步到 profile）、I14（把 schema 写成对象根形状）。
+绝不能做：`notify/AGENTS.md` 的「红线」一节 R1..R14；本文件的 I2（发空通知）、I6（把失败当成功）、I7（同名两层注册）、I9（把"装 bundle"与"装插件"拆成可分别跳过的两步）、I11（以为改仓库源码会自动同步到 profile）、I14（把 schema 写成对象根形状）。
 
 停止并升级人类：要改工具名；要把通知做成**阻塞式**（等用户回话）；要加设置页 / UI；要引入第三方依赖；要在非 Windows 平台上"降级成写日志"。
 
