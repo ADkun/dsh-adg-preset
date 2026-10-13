@@ -31,7 +31,8 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 - **`tools: []`**：`{allow: []}` —— 什么都不给，它一个工具都没有。不要这样派。
 - **未知名**：不在本次可用全局工具名里的名字被**剔除**并逐条写进 `tools_note`（`reason: 'unknown'`）—— **不静默丢弃**。所以子代理报「没有这个工具」时先读 `tools_note`。
 - **六个内置 deny 名字永远给不下去**：`agent` / `delegate` / `workflow` / `ralph` / `set_child_permission` / `ask_user_question`。写进 `tools` 会被剔除并记 `reason: 'denied'`。前四个都能**再开子代理**，后两个只认 live runtime root（子代理调 `ask_user_question` 拿 `DELEGATED_CALLER`）。
-- **`notify_user` 刻意可以给**：它是单向、不阻塞的提醒，子代理撞上登录墙/验证码时应当能自己第一时间喊人，不必等中转。
+- **`ask_user` 是给得下去的提问通道**（`adg-delegate` 提供；不是平台那个 `ask_user_question`）：给了它，子代理撞上登录墙 / 验证码 / 必须有人拍板时能**直接问用户**，答复回到它手上、它当场接着干 —— 不用你中转、也不用它单向喊一声就停手。它问出来的卡片落在**你这个会话**里（owner 是派它的你），你与用户都看得见。**要人工介入的任务就把 `ask_user` 写进 `tools`**，并在 `prompt` 里写明「撞上就开有头窗口 + 用 `ask_user` 问用户」。
+- **`notify_user` 刻意可以给**：它是单向、不阻塞的提醒。它**不能**替代 `ask_user` —— 用户看得见、但回不了话；撞上登录墙时它是「喊人」而不是「问人」。
 - **`run_code` 当场抛错**：它是 PTC 传输保留名，平台的 `tools.restrict()` 对它直接抛错（`cannot name reserved PTC mode presentation transport "run_code"`），`delegate` 替平台挡在前面 —— 点名它的那次调用**整次失败**，是本工具唯一会失败的名单项。
 - **条件性注册名**（`read_image` / `bash` / `subagent_codex` / `subagent_claude_code`）：目标环境未必有，给之前先确认这次真的可用；给不了就在 `prompt` 里写明替代判据。
 - **有 `pwsh` 就必须同给 `job_list` / `job_output` / `job_kill`**：缺了它们，子代理起的后台作业没有人能收。
@@ -69,13 +70,13 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 
 | 项 | 内容 |
 |---|---|
-| 建议 `tools` | `read` `read_image` `write` `edit` `glob` `grep` `pwsh` `web_fetch` `job_list` `job_output` `job_kill` `notify_user` |
+| 建议 `tools` | `read` `read_image` `write` `edit` `glob` `grep` `pwsh` `web_fetch` `job_list` `job_output` `job_kill` `ask_user` `notify_user` |
 | 建议 persona 要点（【目标】/【要干什么】） | 多步交互的网页场景：登录态下的站点操作、多步表单填写与提交、按钮点击与下拉选择、多页跳转的数据抽取；自动处理弹窗与 Cookie 提示 |
 | 建议 persona 要点（【不要干什么】） | 已明确目标 URL 的**交互式**操作才是它的；开放式检索（只搜不点）是 ④。系统设置 → ②；整理本地文件 → ① |
 | 建议 persona 要点（【验收标准】） | 给出操作步骤、抽取到的数据（逐条附出处 URL）或日志证据；被登录墙或验证码阻断时写明卡在哪一步、需要用户做什么；视觉结论要基于 `read_image` 看到的画面，不能只凭 DOM 文本 |
 | 深水区 | 给技能 `${DSH_HOME:-~/.dsh}/skills/adg-browser-use/SKILL.md` |
 
-**必须完全权限**（`danger-full-access`）；派发前先读你自己上下文里的 `Current DSH file policy:` 并问一次用户（三选项：切到完全权限后派 / 降级只做 `web_fetch` 静态抓取 / 暂不做）。这次委派的**模式（有头 / 无头）由你判定后写进 `prompt`** —— 完全确定不需要登录 / 验证码就无头；确定要登录 / 过验证码就有头；拿不准就先无头，并在 `prompt` 里写明「撞上登录墙 / 验证码就 `launch --headed` 换有头并停手报回」。子代理问不了用户，`prompt` 里没写它只能按默认无头开工。
+**必须完全权限**（`danger-full-access`）；派发前先读你自己上下文里的 `Current DSH file policy:` 并问一次用户（三选项：切到完全权限后派 / 降级只做 `web_fetch` 静态抓取 / 暂不做）。这次委派的**模式（有头 / 无头）由你判定后写进 `prompt`** —— 完全确定不需要登录 / 验证码就无头；确定要登录 / 过验证码就有头；拿不准就先无头，并在 `prompt` 里写明「撞上登录墙 / 验证码就 `launch --headed` 换有头，然后用 `ask_user` 问用户登录好了没」。**给 `ask_user`，别只给 `notify_user`**：前者能让用户答完、子代理当场接着干；后者只能单向喊一声，子代理还得停手等你重派。
 
 ### ④ 全网检索
 
@@ -160,8 +161,11 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 | 子代理报「我没有 X 工具」/ 返回的 `tools_note` 里写着 `reason: 'unknown'` | 你点名的名字这次不存在，已被剔除 —— **委派本身没有失败** | 要它继续做那件事只能**新派一个子代理**并把名字换成真实存在的（或干脆省略 `tools` 让它继承全部），产物用路径交接；`send_message` 补不了工具 |
 | 某次委派当场抛 `names unknown global tool …` | 这条路只可能来自**静态名单**（preset 源文件里写死的 `allow`），不是 `delegate` 的 `tools` | 检查那个名字所属的插件（`notify` / `permission` / `delegate`）在这个 profile 装没装，并跑一次 `node tools/check-preset.mjs` |
 | 子代理说「我看不了图」 | `read_image` 的两条条件之一没满足 | 要么改用可查询的状态量，要么就不要求视觉判据 |
+| 子代理报「我不能问用户 / 我拿不到答复」，或它的报错里出现 `DELEGATED_CALLER` | 你这次没给 `ask_user`，它撞上必须问人的岔路（登录墙 / 验证码 / 要人拍板）只能停手 | 把 `ask_user` 写进 `tools`，连同「撞上就用它问用户」一起重派；`send_message` **补不了工具面** |
 
 ## 未观测
+
+- **未观测**：给子代理 `ask_user` 之后，它撞上登录墙时的**实际选择**（`ask_user` 直接问人 / `notify_user` 单向喊一声就停手），以及答复回到它手上后它会不会自己重新核验状态再继续。—— 量法：在真站点登录墙前派一次带 `ask_user` 的网页委派，在转写里看它这一轮调的是哪个、拿到答复后有没有复核。
 
 - **未观测**：`tools` 省略时子代理实际拿到的「继承到的全部」在本机到底是哪几个名字（本技能只按 `delegate` 的语义描述它）。—— 量法：派一次不带 `tools` 的委派，读返回的 `tools_note`，并让子代理报出它可见的工具名清单，两者对照。
 - **未观测**：给 `persona` 之后，被遮蔽的部署 persona 里有哪些内容真的不再出现（平台语义是「遮蔽」，本技能按此描述）。—— 量法：同一条 `prompt` 分别带 / 不带 `persona` 各派一次，让子代理复述它自己收到的角色与边界，逐段比对。
