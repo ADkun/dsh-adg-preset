@@ -17,7 +17,7 @@ last_reviewed: 2026-10-05
 
 | 用例 | 对象 | 断言内容 | 对应不变量/迁移 | 载体 |
 |---|---|---|---|---|
-| T-1 | `allow` 里的策略性越界名 | 给夹具 A 的委派行（`- id: agent` 那一段，本身刻意不写 `allow`）临时补一段 `allow:` 并加 `workflow`、`ralph`、`bash`、`read_image`、`subagent_codex`，逐个跑 `node tools/check-preset.mjs <夹具>` | I1 | 机检：各自只出现一条 `WARN`、`ERROR` 数为 0、退出码 `0` |
+| T-1 | `allow` 里的策略性越界名 | 给夹具 A 的委派行（`- id: agent` 那一段，本身刻意不写 `allow`）临时补一段 `allow:` 并加 `agent`、`delegate`、`set_child_permission`、`bash`、`read_image`、`subagent_codex`、`workflow`、`ralph`，逐个跑 `node tools/check-preset.mjs <夹具>` | I1 | 机检：`agent` / `delegate` / `set_child_permission` / `bash` / `read_image` / `subagent_codex` 各自只出现一条 `WARN`、退出码 `0`；`workflow` / `ralph` 各一条 `ERROR`（这两个名字不在 composition 的注册面里）、退出码 `1` |
 | T-2 | `allow` 里的未注册名 | 同上加 `not_a_tool_name` | I1 | 机检：`ERROR ... allow 里的 "not_a_tool_name" 不是本组合注册过的工具名`，退出码 `1` |
 | T-3 | 委派行不唯一 | 复制 `- id: agent` 那一行块（同 `toolName` 两条） | I1 | 机检：`ERROR … 有 2 个 toolName: agent 的委派入口（…）：委派入口必须唯一，能力面由 delegate 在委派时给`、退出码 `1` |
 | T-4 | `FACTORY_DEFAULTS` 的用法 | 全文检索 `check-preset.mjs`，查是否存在"取值 == 期望值"的比较 | I2 | 人：`FACTORY_DEFAULTS` 只参与摘要打印，不出现在任何 `fail()` 分支 |

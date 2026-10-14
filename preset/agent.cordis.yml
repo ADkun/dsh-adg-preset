@@ -153,16 +153,18 @@
 - id: tool-skill
   name: '@deepseek-ai/dsh-tool-skill'
 
-# ── goals ───────────────────────────────────────────────────────────────────
+# ── goals（整段摘掉）───────────────────────────────────────────────────────
 
-# The goal service and session driver stay on the host plane, where the Gateway
-# can resolve them. The human command and model-facing tool register into this
-# preset's scoped layers.
-- id: command-goal
-  name: '@deepseek-ai/dsh-command-goal'
-
-- id: tool-goal
-  name: '@deepseek-ai/dsh-tool-goal'
+# 原 `command-goal`（人类命令 `/goal`）与 `tool-goal`（模型面 `create_goal` /
+# `get_goal` / `update_goal`，合计 1,573 字符）两行按「减少固定上下文」的目标一起摘掉。
+# 为什么**两行一起**摘：`/goal` 的语法只有 `<objective>` / `clear` / `edit <objective>` /
+# `pause` / `resume`（`dsh-command-goal` 的 USAGE），**收尾（complete）只能由模型用
+# `update_goal` 做**；只摘 tool 行会留下一条"能建、能暂停、没人能收尾"的命令，
+# 目标会一直停在 active 直到用户 `clear` —— 那是半残状态，不如整段摘。
+# 目标域本身（goal service + session driver）仍在 host 平面，本改动不碰它们。
+# 要把 goals 加回来：还原上面那两行（`@deepseek-ai/dsh-command-goal` /
+# `@deepseek-ai/dsh-tool-goal`），并同步 `tools/check-preset.mjs` 的 KNOWN_TOOLS
+# 与技能 `adg-delegation` 的能力带清单。
 
 # ── plan mode ───────────────────────────────────────────────────────────────
 
@@ -329,28 +331,19 @@
         backgroundMode: one-shot
         maxDepth: provider-managed
 
-    # workflow / ralph 只对调度智能体开放：子代理的 toolFilter 里默认没有它们，
-    # 而且与委派能力一样可以在 `delegate` 的 `tools` 里显式给出去 —— 本 preset 不给，
-    # 所以子代理无法借它们绕过委派机制去开任意代理。
-    #
-    # 引擎行对着**当前安装**核对：包名与行形状都对齐出厂 `presets/standard.patch.yml`
-    # （`@deepseek-ai/dsh-workflow-ptc`，"Workflow orchestration in the shared sandboxed
-    # Node PTC runtime"，形状是 `provider: spawn`）。包名核对不上的后果不是"少一个工具"，
-    # 而是 registry 判整份 preset **broken**（报 `… never started`），
-    # 于是 Adg 模式在新会话里根本不可用。改这一行时别凭旧文档写。
-    - id: workflow-ptc
-      name: '@deepseek-ai/dsh-workflow-ptc'
-      config:
-        provider: spawn
-
-    - id: tool-workflow
-      name: '@deepseek-ai/dsh-tool-workflow'
-
-    - id: tool-ralph
-      name: '@deepseek-ai/dsh-tool-ralph'
-      config:
-        subagentProvider: spawn
-        maxRounds: 64
+    # 编排引擎三行（`workflow-ptc` 引擎 + `tool-workflow` / `tool-ralph`）**已摘掉**：
+    # 它们给调度智能体每次请求加 ~4,110 字符的工具目录（`workflow` 3,331 + `ralph` 779），
+    # 而 Adg 模式的主路径是 `delegate` —— 编排引擎是可选件，摘掉不影响委派机制本身。
+    # 摘掉后的两条派生事实：
+    #   - `workflow` / `ralph` 现在**没人注册**：写进任何 `allow` 或 `delegate` 的 `tools`
+    #     不再"策略越界"，而是那一次委派抛 `names unknown global tool ...`
+    #     （`tools/check-preset.mjs` 的 SCHEDULER_ONLY 里已随之删掉这两个名字）。
+    #   - `delegate` 的 `BUILTIN_DENY` 里**仍然留着** `workflow` / `ralph`（见
+    #     `delegate/lib/delegate.mjs`）：名字不存在时 deny 是空的但无害，而万一引擎行被
+    #     加回来，那道闸门已经就位（`tools/check-preset.mjs` 的 EXPECTED_DENIED_FOR_CHILDREN
+    #     仍在核对这两个名字在不在名单字面量里）。
+    # 组上的 `isolate: {workflowEngine: true}` **刻意保留**：将来把引擎行加回来时，它们仍然
+    # 落在同一个 entry-local realm 里，不会转去解析 host 平面那份 registry。
 
 # ── remaining model-facing rows ─────────────────────────────────────────────
 

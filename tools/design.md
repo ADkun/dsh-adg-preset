@@ -37,7 +37,7 @@ last_reviewed: 2026-10-05
 
 - 属性：类别（`ERROR` / `WARN`）、文本（含出错行号与 `id`，便于直接跳到 composition 那一行）、所属不变量（下面是能被追溯到的那一条，供用例表对齐）。
 - 不变量：
-  - **I1**：**ERROR 的含义只有一个——这次委派必然抛错**（例如 `allow` 里写了未注册的工具名，`restrict()` 会抛 `names unknown global tool ...`）。策略性越界（`workflow` / `ralph`）与条件性注册（`bash` / `read_image` / `subagent_codex` / `subagent_claude_code`）**禁止**判成 ERROR，只能 WARN。
+  - **I1**：**ERROR 的含义只有一个——这次委派必然抛错**（例如 `allow` 里写了未注册的工具名，`restrict()` 会抛 `names unknown global tool ...`）。策略性越界（`agent` / `delegate` / `set_child_permission`）与条件性注册（`bash` / `read_image` / `subagent_codex` / `subagent_claude_code`）**禁止**判成 ERROR，只能 WARN。`workflow` / `ralph` 不在 composition 的注册面里，落在"未注册名 ⇒ ERROR"那一侧（`restrict()` 确实会抛）。
   - **I2**：**禁止**把"取值等于某个数"写成判错。本 preset 一律用插件出厂默认值，`FACTORY_DEFAULTS` 只在报告里当对照，不参与任何 `fail()` 分支。
 
 ### KnobRow（不可变值对象）

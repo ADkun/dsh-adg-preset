@@ -87,7 +87,7 @@ stateDiagram-v2
 - 不变量：
   - **I8**：active 委派行的 `config.toolName` 全文件唯一，且**恰好有一条**的 `toolName` 是 `agent` —— 它就是本 preset 唯一的委派入口（`provider: spawn`、`backgroundMode: continuable` 对它是硬要求）；其余同组行只能以 `disabled: true` 存在。
   - **I9**：工具面只能写已注册的工具名 —— 委派行的 `toolFilter.allow` 里写未知名会让 `restrict()` 抛 `names unknown global tool …`、那次委派当场失败；经 `delegate` 的 `tools` 点名的未知名由插件**剔除后逐条写进 `tools_note`**（不抛错，但不许静默丢掉），`run_code` 一律当场抛错。`bash` / `read_image` / `subagent_codex` / `subagent_claude_code` 是**条件性注册**的名字（目标环境未必有，自检只给 WARN）；构建期注入的那几个名字禁止手写。
-  - **I10**：子代理的工具面不得含 `workflow` / `ralph`（`restrict()` 会接受它们、不会让委派失败，但拿到就能绕开委派机制去开任意代理）。
+  - **I10**：子代理的工具面不得含任何"能再开子代理"的名字（`agent` / `delegate`；闸门是 `adg-delegate` 的内置 deny + 平台深度默认 1）。`workflow` / `ralph` 原来也在这条里：`workflow` / `ralph` 不在本 composition 的注册面里（名字不存在）⇒ 写进任何 `allow` 属于**未知名**，`restrict()` 当场抛 `names unknown global tool …`（不再是"策略越界 WARN"）。
   - **I11**：委派行的 `config.backgroundMode` 必须 `continuable`（本 preset 委派一律后台接续；`delegate` 默认也是后台）。
   - **I12**：委派行不得写 `maxDepth`，`delegate` 也不得给子代理传 `maxDepth`（写 `0` 会让每次委派以 `subagent depth 1 exceeds maxDepth 0` 失败）。
   - **I13**：委派行不得写 `maxTokens` / `agentOptions` / `reasoningEffort`（`reasoningEffort` 在手工声明的路由上报 `UNSUPPORTED_REASONING_EFFORT`）。

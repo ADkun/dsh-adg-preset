@@ -60,8 +60,10 @@ const target = resolve(process.argv[2] ?? join(here, '..', 'preset', 'agent.cord
 /**
  * 本 preset 组合里注册过的工具名（委派行 `allow` 与 `delegate` 的 `tools` 的合法取值）。
  * 依据：本文件的 `role/preset` 行 + composition 自己注册的那些行。改 composition 的 tool 行时同步这里。
- * 刻意不含 `subagent` / `subagent_fork` / `workflow` / `ralph`：它们不该出现在任何一次委派的工具面里
- * （前两个是硬约束，后两个只留给调度智能体）。
+ * 刻意不含 `subagent` / `subagent_fork`（硬约束：子代理不该有再开子代理的入口）与 `workflow` /
+ * `ralph` / `create_goal` / `get_goal` / `update_goal`：后五个对应的行**已从 composition 摘掉**
+ * （减少调度智能体每次请求的固定工具目录），名字不再注册 —— 写进 `allow` 会让那一次委派抛
+ * `names unknown global tool ...`，所以它们落到本清单之外的 `fail()` 分支是**对的**。
  */
 const KNOWN_TOOLS = new Set([
   // shell（tool-bash / tool-pwsh，按平台二选一）
@@ -78,11 +80,9 @@ const KNOWN_TOOLS = new Set([
   'job_list',
   'job_output',
   'job_kill',
-  // skills / goals / plan mode
+  // skills（goals 的 `create_goal` / `get_goal` / `update_goal` 已随 preset 的两行一起摘掉，
+  // 不再是合法取值 —— 写进去会让那一次委派抛 `names unknown global tool`）
   'skill',
-  'create_goal',
-  'get_goal',
-  'update_goal',
   // delegation control（tool-subagent-control）
   'list_agents',
   'send_message',
@@ -127,8 +127,8 @@ const CONDITIONAL_TOOLS = new Map([
  * 确实注册了，restrict() 会接受它们。
  */
 const SCHEDULER_ONLY = new Map([
-  ['workflow', '子代理拿到就能绕开一跳可达开任意代理'],
-  ['ralph', '子代理拿到就能绕开一跳可达开任意代理'],
+  // `workflow` / `ralph` 已随 preset 摘掉注册行：它们不再是"策略越界"（曾在此列），
+  // 而是**未知名** —— 落到下面的 KNOWN_TOOLS 之外、判 ERROR（`restrict()` 确实会抛）。
   [
     'set_child_permission',
     '权限面只归调度智能体 —— 它改的是"自己派出去的子代理"的权限，而子代理本来就不该有子代理',
@@ -319,8 +319,12 @@ for (const row of activeRows) {
 const DENIED_FOR_CHILDREN = new Set(['agent', 'delegate'])
 
 /**
- * 应该有：缺了不会让哪次委派抛错（`restrict()` 照样接受这些名字），但会把只留给调度智能体
- * 的工具面漏给子代理 —— 策略越界，按 `tools/AGENTS.md` 的红线 1 只判 WARN。
+ * 应该有：缺了不会让哪次委派抛错，但会把只留给调度智能体的工具面漏给子代理 ——
+ * 策略越界，按 `tools/AGENTS.md` 的红线 1 只判 WARN。
+ *
+ * `workflow` / `ralph` 的引擎行已从 preset 摘掉（名字不再注册），这里**仍然要求它们出现在
+ * `BUILTIN_DENY` 的字面量里**：名字不存在时 deny 是空的但无害；哪天引擎行被加回来，
+ * 那道闸门已经就位（理由见 `preset/agent.cordis.yml` 的 `delegation` 组注释）。
  */
 const EXPECTED_DENIED_FOR_CHILDREN = new Set([
   'workflow',
