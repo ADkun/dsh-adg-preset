@@ -1,8 +1,8 @@
 ---
 title: preset — 测试与验证
-owner: dsh-adg-preset
+owner: Adg preset 维护者
 status: current
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-15
 ---
 
 # preset 模块测试指南
@@ -43,7 +43,7 @@ last_reviewed: 2026-10-04
 | SV9 | 浏览器命令行契约 | 委派文本里给子代理的命令名与输出行（`profile` / `launch` / `status` / `text` / `eval` / `shot` / `close`、`STATE=` / `PORT=` / `PROFILE=`）与 `browser/lib/` 的实现一致。**没有脚本读 persona 文本**，所以本用例靠对抗评审：评审者当场跑 `cd browser && node cli.mjs help` 读出实际命令清单，再拿 persona 里出现的每个命令名与输出行逐项对照，多一个少一个都不算过 | R14 | `[评]` |
 | SV10 | 委派一律后台 | 不存在"阻塞等待某个委派"的措辞，也不存在"用 `pwsh` 睡眠 / 轮询等委派跑完"的措辞（派完即结束本轮） | R18 | `[评]` |
 | SV11 | 人工介入那一段 | 子代理侧的人工介入默认走 `ask_user` 直问；`notify_user` 是 `BUILTIN_DENY` 之外**刻意可给**的**单向补充**，不是替代 —— `ask_user` 走不通时子代理才退回"喊一声 + 把未决问题写进最终结果报回调度者"（调度 persona 里已不再有"转达"这段，改由技能与 `notify/design.md` 承担） | R20 | `[评]` |
-| SV12 | `suffix` 未使用 | 组合文本里没有 `suffix:` 字段行；`- id: persona` 整行仍在（删整行会让 global 层那句 `Your working directory is …` 重新显形） | 「SchedulerPersona」 | `[机检]` + `[评]` |
+| SV12 | `suffix` 在位 | 组合文本里 `- id: persona` 的 `config` 内有一行 `suffix: Your working directory is {{cwd}}.`（取值与 standard preset、各 surface 的 `personaSuffix` 部署默认逐字一致）；**缺这一行字段不等于"回落到 global 层那句"** —— schema 默认值是空串，同名合并里遮蔽 global 之后在渲染期被 `filter((text) => text.length > 0)` 丢掉，调度者整句读不到会话工作目录 | 「SchedulerPersona」 | `[机检]` + `[评]` |
 | BV1 | 真实挂载 | `agentPresets.resolve('adg')` 的 `.broken` 为空，且名册与委派行的形状符合根 `README.md` 的「真实挂载验证」一节的判据 | `deployed → mounted` / I1 / I2 | `[人]` 真实挂载 |
 | BV2 | 真实生效 | 改一个可观察点（例如某次委派经 `delegate` 的 `tools` 少给一个工具），重启 dsh 后在新对话里委派一次，子代理报出的工具目录随之变化 | I2 / I18 | `[人]` 真实委派 |
 | BV3 | 成本结论 | 任何成本结论都附改动前后各一次的会话审计数字，且比较看比例与量级 | I4 / I6 | `[人]` 会话审计 |

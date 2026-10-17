@@ -1,8 +1,8 @@
 ---
 title: preset — Adg preset 的定义
-owner: dsh-adg-preset
+owner: Adg preset 维护者
 status: current
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-15
 ---
 
 # preset 设计
@@ -102,14 +102,14 @@ stateDiagram-v2
 
 ### SchedulerPersona（不可变值对象）
 
-调度智能体的 persona 段，写在 `preset/agent.cordis.yml` 顶部的 `- id: persona` 行里，只有 `prefix: |-` 一个字段。它是一个**结构固定的文本**：四个大标题 `## 目标` / `## 你手上的子代理`（名册）/ `## 约束` / `## 验收标准`。它**不是**流程脚本：只规定目标、约束、验收标准，不规定每一步的产出与固定格式。
+调度智能体的 persona 段，写在 `preset/agent.cordis.yml` 顶部的 `- id: persona` 行里，`config` 下只有 `suffix` 与 `prefix` 两个字段（与 standard preset 的 persona 行同形）。它是一个**结构固定的文本**：四个大标题 `## 目标` / `## 你手上的子代理`（名册）/ `## 约束` / `## 验收标准`。它**不是**流程脚本：只规定目标、约束、验收标准，不规定每一步的产出与固定格式。
 
 - `## 约束` 由 11 个 **顶级** `【…】` 段组成（拆解立目标 / 要不要派 / 派给谁 / 派几次 / 怎么发 / 委派里写什么 / 技能 / 中转材料 / 浏览器：权限 / 浏览器：模式 / 不确定就问）；数 `【…】` 标记会多数出几个 —— 其中「【拆解立目标】」内含【目标】/【要干什么】/【不要干什么】/【验收标准】四个**子项**，它们是该段的子结构，不是顶级段。
 - `## 验收标准` 在位的是**两段**：第 1 段＝按【拆解立目标】里定下的【验收标准】逐条判定的判据；第 2 段＝交付纪律与分段交付，它**以加粗的「面向用户的输出以人类可读性为第一原则」开头**，并当场写明范围＝直接答复 + 文档 / 报告 / 表格 / 幻灯片等一切用户看得到的成果（委派产出这类成果时把这条写进委派）。
 - 不变量：
   - **I22**：禁止删掉或改写 `## 约束` 与 `## 验收标准` 这两个锚段的内容 —— 判据是**对抗评审**（自检不覆盖锚段内容与在位：`tools/check-preset.mjs` 只做逐行文本扫描，不检查这两个锚段；评审时逐段对照 `preset/agent.cordis.yml` 的调度 persona，判据见 `preset/testing-guide.md` 的「用例总表」里锚段在位与锚段语义那两条用例）。**现行形态是 11 段**：原【需要用户本人的事】段已刻意删除（它的两条必要口径并入【浏览器：模式】与【不确定就问】），除此之外仍禁止增删改写。
   - **I23**：禁止把这两个锚段改写成预算、字数上限或分步流程 —— 它们约束的是"派给谁 / 派几次 / 材料怎么中转 / 写下来的东西怎么组织"，不是"单个子代理能读多少、能写多少"。
-- `suffix` 字段**不使用**：段按**名字**合并、"最近作用域的名字覆盖全局"（`@deepseek-ai/dsh-scope` 的 `merge()`：`the nearest scope's entry wins a name`；`@deepseek-ai/dsh-system-prompt` 组装时同名只留一份）、空文本在渲染期被丢弃（同包 `filter((text) => text.length > 0)`），所以本层注册的同名空串段足以遮蔽 global 层那句 `personaSuffix: Your working directory is {{cwd}}.`。**删整行 `- id: persona` 会让那句原样重新显形** ⇒ 只许删 `suffix:` 一个字段行。理由是少一个变量依赖（`{{cwd}}` 来自会话头 `header.cwd`，同一会话内不可改，改动抛 `ApiSessionCwdConflict`；换工作区等于新会话），**不是**修缓存问题。
+- `suffix` 字段**在位**，取值 `Your working directory is {{cwd}}.`（standard preset 与各 surface 的部署默认 `personaSuffix` 同文）：调度者与标准模式读到**同一句**会话工作目录。取值来自会话头 `header.cwd`，同一会话内不可改（改动抛 `ApiSessionCwdConflict`；换工作区等于新会话）。段按**名字**合并、"最近作用域的名字覆盖全局"（`@deepseek-ai/dsh-scope` 的 `merge()`：`the nearest scope's entry wins a name`；`@deepseek-ai/dsh-system-prompt` 组装时同名只留一份），空文本在渲染期被丢弃（同包 `filter((text) => text.length > 0)`）—— 所以**删掉 `suffix:` 这一个字段行不会回落到 global 层那句**：`@deepseek-ai/dsh-persona` 的 schema 默认值是空串，它照样按名字遮蔽 global 层那句 `personaSuffix`，再在渲染期被丢掉。字段行在位与取值逐字一致由 `tools/check-preset.mjs` 钉住。
 
 ## 对外接口
 
@@ -145,6 +145,11 @@ stateDiagram-v2
 | R19 | 浏览器运行模式由**调度者**在派发前判定，不为此问用户：完全确定不需要登录 / 验证码 → 无头；确定需要 → 有头；拿不准 → 先无头，真正撞上登录墙 / 验证码时再换成有头。判定的结果写进委派文本。理由：模式决定用户能不能看见窗口，但每个任务都问一遍是把人的判断变成打扰，而"拿不准先无头、撞墙再升级"本来就是登录协议的路径 —— 工具层的默认（`headless`）不得被改，换模式仍必须显式且只有一条换法。 | 组合文本「浏览器：模式」段 | `[评]` |
 | R20 | 中途需要人工介入时，子代理默认用 **`ask_user` 直接问用户**（把有头窗口开好、问清"用户要做什么"、等答复，拿到后自己复核一次登录态再接着干）；`notify_user` 是**单向补充**而不是替代 —— 它只解决"人不在电脑前看不到"，`ask_user` 走不通时才退回"`notify_user` 喊一声 + 把未决问题写进最终结果报回调度者"。 | `notify/design.md` 的「对外接口」＋ `delegate` 的可给名单（`ask_user` / `notify_user`） | `[评]` |
 | R21 | 截图能力（`read_image`）属**条件性注册**：目标环境未注册时它只是个 WARN，不保证可用。理由：把它当稳定能力写进流程会让子代理在未注册的环境里反复失败。 | `tools/check-preset.mjs` 的 `CONDITIONAL_TOOLS` | `[机检]` |
+| R22 | 禁止把 `validated` 当 `mounted`（见 I1 / I5）：`node tools/check-preset.mjs` 退出 0 只证明"文本上没被发现违规"，不证明 YAML 可解析、不证明已重新生成、更不证明挂载成功。理由：静态检查与运行期注册是两件事，混起来会对着坏 preset 安排工作。 | 本文件「PresetRevision」（I1 / I5） | `[评]` + 真实挂载（`agentPresets.resolve('adg')` 的 `.broken` 为空） |
+| R23 | 禁止没重启 dsh 就宣称已生效（见 I2）：dsh 读的是 profile 里注册的声明行（来自上一次生成的 bundle），文件改动不会替换已挂载的 preset。理由：预设选择在会话起步时就锁定了，旧会话里的"已经生效"不作数。 | 本文件「PresetRevision」（I2） | `[评]` + 重启后在**新对话**里真实委派一次 |
+| R24 | 给了 `pwsh` 就必须同时给 `job_list` / `job_output` / `job_kill`（见 I14，落在每次现给的 `tools` 上）。理由：缺了它们，子代理起的后台作业没有人能收。 | 本文件「DelegationRow 与动态工具面」（I14）；`skills/adg-delegation/SKILL.md` 的「`tools` 是硬边界」 | `[机检]` `tools/check-preset.mjs` 的 `EV7` |
+| R25 | 子代理的工具面不写 `skill`（见 I15）：技能按**渐进式披露**放在 `skills/` 里，需要技能的委派由调度者给出技能文件的**绝对路径** +「先 read 该文件再动手」，不内联、不复述技能正文（技能面只归调度智能体）。理由：写 `skill` 是已注册名、不会让委派失败，但会让子代理拿一份它读不到的技能面。 | 本文件「DelegationRow 与动态工具面」（I15） | `[机检]` `tools/check-preset.mjs` 的 WARN |
+| R26 | `preset/agent.cordis.yml` 是 **UTF-8 无 BOM**：用按 ANSI 猜测编码的文本工具（Windows PowerShell 的 `Get-Content` / `Set-Content`）读写会乱码并改变行数。理由：乱码会让逐行静态扫描的判据失真，而那个判据本身看不出来。 | 本 preset 的组合文本（它要能被逐行扫描） | `[评]` + 改完跑 `node tools/check-preset.mjs` 并复核行数与内容 |
 
 **未观测**：调度者是否真的每次都执行浏览器任务的权限闸门；量法：抽若干浏览器任务，转写里看 `ask_user_question` 是否出现在任何浏览器委派之前，并核对当时的文件策略行。
 

@@ -53,6 +53,7 @@
 - id: persona
   name: '@deepseek-ai/dsh-persona'
   config:
+    suffix: Your working directory is {{cwd}}.
     prefix: |-
       你是 Adg 多智能体模式的调度智能体（dispatcher）。
 
