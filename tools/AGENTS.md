@@ -5,22 +5,27 @@
 ## 命令
 
 ```sh
-node tools/check-preset.mjs        # 校验仓库里的 preset/agent.cordis.yml（唯一文本真相源）
-node tools/gen-preset-bundle.mjs   # 不带旗标 = plain；不传位置参数时才落到缺省出海目录 bundle/adg-preset/（在 .gitignore 里，不手改）
-# 改过生成器、flavors.mjs 或 agent.cordis.yml → 四种味道都要生成并各自验一遍：
+node tools/check-preset.mjs        # 校验仓库里的 preset/agent.cordis.yml（唯一文本真相源；exit 0 通过 / 1 有 ERROR / 2 读不到目标文件）
+node tools/gen-preset-bundle.mjs   # 不带旗标 = plain；不传位置参数时才落到缺省出海目录 bundle/adg-preset/（在 .gitignore 里，不手改）；install.* 每次安装都重跑生成器，且每次都显式传位置参数
+# 改过生成器、flavors.mjs 或 agent.cordis.yml → 四种味道都要生成并各自验一遍。
+# 为什么非跑不可：check-preset 读的是**源文件**（委派行按 4 空格缩进就够它匹配），产物是它的盲区 ——
+# "那段说明在不在 / 名字全不全 / 注错方向 / 自动压缩没关掉"只有 check-bundle-flavor.mjs 钉得住，它自己探测缩进。
 node tools/gen-preset-bundle.mjs bundle/adg-plain && node tools/check-bundle-flavor.mjs bundle/adg-plain/cordis.patch.yml plain
 node tools/gen-preset-bundle.mjs --with-billion-context bundle/adg-bili && node tools/check-bundle-flavor.mjs bundle/adg-bili/cordis.patch.yml bili
 node tools/gen-preset-bundle.mjs --with-save-token bundle/adg-save-token && node tools/check-bundle-flavor.mjs bundle/adg-save-token/cordis.patch.yml save-token
 node tools/gen-preset-bundle.mjs --with-billion-context --with-save-token bundle/adg-bili-save-token && node tools/check-bundle-flavor.mjs bundle/adg-bili-save-token/cordis.patch.yml bili+save-token
+# 味道键必须写 `bili+save-token`（写成 `bili-save-token` 会 exit 2「未知的味道键」；稳定目录名才是 …-bili-save-token）。两个旗标可叠加。
 # 探测与味道映射（安装脚本对**每个注入组各问一次**，再拿结果去映射目录与旗标）：
-node tools/has-bundle.mjs ~/.dsh/profiles web [desktop ...]                       # 每 profile 一行 "<name>\t<0|1>"（缺省探测 billion-context）
+# 口径是"装了什么才注入什么"：装着才把那一组的全局层工具名写进调度 persona 那段说明（由调度者随每次委派放进 `delegate` 的 `tools`），没装就不注入；
+# auto 模式下味道由该 profile 自己的探测结果决定（`--<组>=on|off` 才整体覆盖），装完用 check-bundle-flavor.mjs 断言那一份 —— 见根 `AGENTS.md` 红线 10。
+node tools/has-bundle.mjs ~/.dsh/profiles web [desktop ...]                       # 每 profile 一行 "<name>\t<0|1>"（1 = 挂着；缺省探测 billion-context）；正常输出 exit 0，**用法错**（参数不成对等）才 exit 2
 node tools/has-bundle.mjs ~/.dsh/profiles web --package=dsh-plugin-save-token    # 换一组问同一个 profile
 node tools/resolve-flavor.mjs --billion-context --save-token                      # "<味道键>\t<稳定目录名>\t<gen 旗标>"
 ```
 
 判据是**退出码**，不是任何一次运行的字节数：四份生成物的大小会随 persona 正文的每一次编辑漂移，只有 `check-bundle-flavor.mjs` 的断言才是判据。
 
-退出码：`check-preset.mjs` — `0` 通过（允许有 WARN）/ `1` 有 ERROR / `2` 目标不存在或不是普通文件；stdout 里两行摘要是 `体积旋钮（生效值）` 与 `裁剪后实际吐出（按生效配置算）`。`gen-preset-bundle.mjs` — `0` 成功 / `1` 输入缺失、形状不符或不认识的旗标（错误在 stderr；两个旗标叠加合法）。`check-bundle-flavor.mjs` — `0` 断言成立 / `1` 有 ERROR（调度 persona 里那段 `**本会话的上下文工具` 说明缺失或出现多段、该在的组缺名字、不该在的组出现名字、出现了该组 `notInjected` 里的名字、`- id: agent` 委派行不恰好一条、`compaction-basic` 的 `auto` 值或有无与该味道不符）/ `2` 参数、味道键或文件不对。`has-bundle.mjs` — `0` 正常输出 / `2` 缺参数或包名为空；它**不因某个 profile 没挂那个包而失败**（那是数据，不是错误）。`resolve-flavor.mjs` — `0` 成功 / `2` 不认识的旗标或位置参数。`flavors.mjs` 不是 CLI，没有退出码。全部零依赖，不需要 `node_modules`。
+退出码：`check-preset.mjs` — `0` 通过（允许有 WARN）/ `1` 有 ERROR / `2` 目标不存在或不是普通文件；stdout 里两行摘要是 `体积旋钮（生效值）` 与 `裁剪后实际吐出（按生效配置算）`。`gen-preset-bundle.mjs` — `0` 成功 / `1` 输入缺失、形状不符或不认识的旗标（错误在 stderr；两个旗标叠加合法）。`check-bundle-flavor.mjs` — `0` 断言成立 / `1` 有 ERROR（调度 persona 里那段 `**本会话的上下文工具` 说明缺失或出现多段、该在的组缺名字、不该在的组出现名字、出现了该组 `notInjected` 里的名字、`- id: agent` 委派行不恰好一条、`compaction-basic` 的 `auto` 值或有无与该味道不符）/ `2` 参数、味道键或文件不对。`has-bundle.mjs` — 每 profile 一行 `<name>\t<0|1>`（1 = 挂着）：`0` 正常输出（命中与未命中都只是数据，它**不因某个 profile 没挂那个包而失败**）/ `2` **用法错**（参数不成对等：缺 `profilesDir`、一个 profile 都没给、`--package=` 为空）。`resolve-flavor.mjs` — `0` 成功 / `2` 不认识的旗标或位置参数。`flavors.mjs` 不是 CLI，没有退出码。全部零依赖，不需要 `node_modules`。
 
 ## 红线
 

@@ -72,7 +72,7 @@ node cli.mjs send --message '…' --show  # 真弹一条（与 notify_user 同�
 
 ### 设置页那份设置文件（本模块 ← `settings/`）消费的是**三个键名、默认值与界**
 
-本模块的三项行为（`notifyTitle` / `notifySound` / `notifyPersist`）不是本模块定的：键名、默认值与界的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`（`consumer === 'adg-notify'` 那三条登记）。本模块**只读**那份文件 —— 落点＝`settingsFile()` 的优先序 `${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`（本机宿主进程里 `DSH_PROFILE_DIR=C:\Users\adkun\.dsh\profiles\web` ⇒ 真实落点是 `<profile>` 目录下那份，**不是**用户根那份）；读写经 `notify/lib/user-settings.mjs` 的 `settingsFile()` / `readUserDefaults()` / `resolveRequest()`，**不 import `adg-settings` 包** —— 见 R13 与 `design.md` 的 I15。
+本模块的三项行为（`notifyTitle` / `notifySound` / `notifyPersist`）不是本模块定的：键名、默认值与界的唯一真相在 `settings/lib/schema.mjs` 的 `FIELDS`（`consumer === 'adg-notify'` 那三条登记）。本模块**只读**那份文件 —— 落点＝`settingsFile()` 的优先序 `${DSH_PROFILE_DIR:-${DSH_HOME:-~/.dsh}}/adg-settings.json`（宿主进程里 `DSH_PROFILE_DIR` 就是当前 profile 目录 ⇒ 真实落点是 `<profile>` 目录下那份，**不是**用户根那份）；读写经 `notify/lib/user-settings.mjs` 的 `settingsFile()` / `readUserDefaults()` / `resolveRequest()`，**不 import `adg-settings` 包** —— 见 R13 与 `design.md` 的 I15。
 
 | 键 | 默认 | 消费点 |
 |---|---|---|

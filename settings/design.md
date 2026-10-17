@@ -1,3 +1,10 @@
+---
+title: settings 模块设计 —— 设置页的登记表驱动框架（adg-settings）
+owner: Adg preset 维护者
+status: current
+last_reviewed: 2026-10-15
+---
+
 # design.md — settings（Adg 设置页框架：对象、不变量、接口）
 
 本文件说清 **`adg-settings` 是什么、由哪些对象组成、哪些不变量不许破、接口长什么样**。路由与红线见 [AGENTS.md](AGENTS.md)；用例总表与未观测项见 [testing-guide.md](testing-guide.md)。
@@ -43,7 +50,7 @@ stored（<DSH_PROFILE_DIR | DSH_HOME | ~/.dsh>/adg-settings.json，见 2.3）  >
 
 ### 2.3 设置文件
 
-- 落点：`<DSH_PROFILE_DIR> | <DSH_HOME> | <homedir()>/.dsh` + `/adg-settings.json`（`settingsFile()`）—— **优先 `DSH_PROFILE_DIR`**：本机宿主进程里它就是当前 profile 目录（`C:\Users\adkun\.dsh\profiles\web`）⇒ 真实落点是 `<profile>\adg-settings.json`，**不是**用户根那份。
+- 落点：`<DSH_PROFILE_DIR> | <DSH_HOME> | <homedir()>/.dsh` + `/adg-settings.json`（`settingsFile()`）—— **优先 `DSH_PROFILE_DIR`**：宿主进程里它就是当前 profile 目录 ⇒ 真实落点是 `<profile>\adg-settings.json`，**不是**用户根那份。
 - 形状：一个 JSON 对象，逐键存值（`{"notifyTitle":"…","notifySound":false}`）。**写进去的只有页面认识的键**。
 - 写：`mkdirSync(recursive)` → 写 `${file}.tmp`（`mode 0o600`）→ `renameSync`（原子替换）。读不出来（不存在 / 不是 JSON / 不是对象）= 「还没保存过」，不是错误。
 
@@ -102,7 +109,7 @@ notify/lib/user-settings.mjs:
   "unknown":    [ ],          // 文件里有、登记表里没有的键（只报告，不删）
   "dropped":    [ ],          // 文件里有、但值不合法而被丢掉的键
   "fields":     [ /* describeFields()：客户端渲染与校验的唯一来源 */ ],
-  "file":       "C:\\Users\\<user>\\.dsh\\profiles\\web\\adg-settings.json"   // 优先 DSH_PROFILE_DIR ⇒ 本机真实形状就是 <profile> 目录下这一份
+  "file":       "<DSH_PROFILE_DIR | DSH_HOME | ~/.dsh>/adg-settings.json"   // 优先 DSH_PROFILE_DIR ⇒ 真实形状就是 <profile> 目录下这一份
 }
 ```
 

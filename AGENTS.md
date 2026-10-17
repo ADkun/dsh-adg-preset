@@ -9,63 +9,19 @@ Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它
 零运行时依赖；只要求 Node（`browser/package.json`、`desktop/package.json`、`notify/package.json`、`permission/package.json` 与 `delegate/package.json` 都声明 `>= 22`）。仓库根没有 `package.json`、没有 monorepo 构建、没有 lint 配置。
 
 ```sh
-# preset 静态自检（零依赖，逐行文本扫描；exit 0 通过 / 1 有 ERROR / 2 读不到目标文件）
-node tools/check-preset.mjs
+# preset 静态自检（零依赖，逐行文本扫描）：exit 0 通过 / 1 有 ERROR / 2 读不到目标文件。
 # 它读的就是仓库里的 preset/agent.cordis.yml —— 那是唯一真相源，没有"已安装的第二份"可以传路径。
-
+node tools/check-preset.mjs
 # 生成 preset bundle（产物不入库，落在被 .gitignore 排除的 bundle/adg-<味道>/；install.* 每次按探测结果重跑）
 # 不带旗标 = plain；不传位置参数时才落到缺省目录 bundle/adg-preset/（install.* 每次都显式传位置参数）
 node tools/gen-preset-bundle.mjs
-node tools/gen-preset-bundle.mjs --with-billion-context   # 目标 profile 装了 billion-context 才用：给调度 persona 插一段 `**本会话的上下文工具` 说明（要调度者每次委派把那 4 个上下文工具一并写进 `delegate` 的 `tools`），并给 compaction-basic 注入 config.auto=false（红线 10）
-node tools/gen-preset-bundle.mjs --with-save-token        # 目标 profile 装了 dsh-plugin-save-token 才用：把 save_token_expand 写进同一段说明（红线 10）
-# 两个旗标可叠加（叠加后就是味道 bili+save-token）。口径是"装了什么才注入什么"：安装脚本先探测、再决定传哪些旗标。
-# 味道键 / 稳定目录名 / 注入清单只有一份，写在 tools/flavors.mjs，别在别处拼这些字符串。
 
-# 生成物自检：check-preset 读的是源文件（委派行按 4 空格缩进就够它匹配），产物是它的盲区 ——
-# 所以"那段说明在不在 / 名字全不全 / 注错方向 / 自动压缩没关掉"必须靠这个脚本钉住。它自己探测缩进，四种味道都要验：
-node tools/gen-preset-bundle.mjs bundle/adg-plain && node tools/check-bundle-flavor.mjs bundle/adg-plain/cordis.patch.yml plain
-node tools/gen-preset-bundle.mjs --with-billion-context bundle/adg-bili && node tools/check-bundle-flavor.mjs bundle/adg-bili/cordis.patch.yml bili
-node tools/gen-preset-bundle.mjs --with-save-token bundle/adg-save-token && node tools/check-bundle-flavor.mjs bundle/adg-save-token/cordis.patch.yml save-token
-node tools/gen-preset-bundle.mjs --with-billion-context --with-save-token bundle/adg-bili-save-token && node tools/check-bundle-flavor.mjs bundle/adg-bili-save-token/cordis.patch.yml bili+save-token
-
-# 探测与味道映射：判据只决定该 profile 拿哪份生成物；别在别处重写这份判定
-node tools/has-bundle.mjs ~/.dsh/profiles web               # → 每 profile 一行 `web<TAB>1|0`，退出码恒 0（缺省探测 billion-context）
-node tools/has-bundle.mjs ~/.dsh/profiles web --package=dsh-plugin-save-token    # 同一个 profile 换一组问
-node tools/resolve-flavor.mjs --billion-context --save-token   # → `<味道键>\t<稳定目录名>\t<gen 旗标>`，安装脚本据此选生成物
-
-# browser/ 的单元测试（零依赖、不需要浏览器）
-cd browser && node --test test
-cd browser && node --test --test-isolation=none test        # 沙箱里同样必须加这个 flag
-# notify/ 的单元测试（零依赖、不弹窗）
-cd notify && node --test test
-
-# permission/ 的单元测试（零依赖、不写磁盘、不需要 dsh 在跑）
-cd permission && node --test test
-cd permission && node --test --test-isolation=none test     # 沙箱里同样必须加这个 flag
-
-# delegate/ 的单元测试（零依赖、不写磁盘、不需要 dsh 在跑）
-cd delegate && node --test test
-cd delegate && node --test --test-isolation=none test       # 沙箱里同样必须加这个 flag
-
-# desktop/ 的单元测试（零依赖、不碰真实桌面；纯函数层）
-cd desktop && node --test test
-cd desktop && node --test --test-isolation=none test        # 沙箱里同样必须加这个 flag
-
-# 装到本机 dsh 用户根（技能：遍历 skills/* 逐个 SKILL.md 装 + preset bundle + browser 工具链 + desktop 工具链 + notify / permission / delegate 三枚子插件）
-sh install.sh                                                              # macOS / Linux
-sh install.sh --billion-context=on web                                     # 只给这个 profile 用 bili 注入版（见红线 10）
-powershell -ExecutionPolicy Bypass -File .\install.ps1                     # Windows
-powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profiles web
-# preset 是一个 bundle：脚本把生成物拷到它的四个稳定目录（$DSH_HOME/bundles/ 下的
-# dsh-adg-preset = plain、-bili、-save-token、-bili-save-token）→ 按探测到的注入组给每个 profile link 一份
-# → 把包名写进该 profile 的 dsh.profile.bundles（光有依赖不算选中）。
-# dsh 正在运行时 pnpm 会因文件被占用而失败（脚本会如实报告并继续）—— 要真正装/换依赖先关掉 dsh。
-# 探测按【每个注入组、每个目标 profile】各问一次：装着才把那一组的全局层工具名写进调度 persona 那段说明（由调度者随每次委派放进 `delegate` 的 `tools`），没装就不注入；
-# auto 模式下味道由该 profile 自己的探测结果决定（`--<组>=on|off` 才整体覆盖），装完用
-# tools/check-bundle-flavor.mjs 断言那一份的味道（见红线 10）。
+# 其余命令按模块分家：各模块的单元测试、四种味道的产物自检、探测与味道映射、首装/重装都在它自己那份
+# `AGENTS.md` 的「命令」节 —— 生成 / 味道自检 / 探测 / `install.*` 见 `preset/AGENTS.md`，生成器与校验器
+# 的全部命令与退出码见 `tools/AGENTS.md`（含四种味道的生成 + 断言四条）；人向的安装说明见 `README.md`。
 ```
 
-**本仓库没有"一条命令跑完全部"的入口**：上面几组命令彼此独立，各自覆盖一层。验收方式是这几组 + 一次真实挂载，见「Quality Gates」。
+**本仓库没有"一条命令跑完全部"的入口**：这些命令彼此独立，各自覆盖一层。验收方式是这些命令 + 一次真实挂载，见「Quality Gates」。
 
 ## 关键红线
 
@@ -85,30 +41,30 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 
 ## 生效方式（口径不同，别承诺错）
 
-| 改了什么 | 怎么生效 | 怎么复核 |
+| 改了什么 | 生效口径 | 复核指针 |
 |---|---|---|
-| `preset/` 任何文件（含改委派能力 / 工具面映射） | 重跑 `tools/gen-preset-bundle.mjs` 并重装 bundle（`install.*` 会自动做），再**重启 dsh**，然后在**新对话**里选「Adg 多智能体模式」 | 按 `README.md`「真实挂载验证」一节做**真实挂载**（静态自检证明不了挂载） |
-| 只切换注入组 / 味道（同一份源文件分四种味道、四个稳定落点，见红线 10） | 重新生成 + 重装 bundle + **重启 dsh** + 新会话 | 先看该 profile 的 `node_modules/dsh-adg-preset` 链接的是哪一份稳定目录，再用 `tools/check-bundle-flavor.mjs <那份文件> <味道键>` 断言那一份（`install.*` 装完已经这么断言）；再在新会话里用一次 `delegate` 派一个子代理（把那段说明里的名字写进 `tools`），让它报工具目录里看得见 `compress` / `acp_status`（装了 save-token 的还该看得见 `save_token_expand`） |
-| `notify/` 任何文件 | 重装子插件（`install.*` 第 2b / 4c / 4c-1 步：稳定副本 + `dsh plugin --profile <p> add`；`delegate/` 对应 2b-2 / 4c-4 / 4c-5 步）+ **重启 dsh** + 新会话 | `cd notify && node --test test`，再在新会话里委派一个子代理时把 `notify_user` 写进那次 `tools`、让它真调一次 |
-| `permission/` 任何文件 | 重装子插件（`install.*` 第 2b-1 / 4c-2 / 4c-3 步：稳定副本 + `dsh plugin --profile <p> add`）+ **重启 dsh** + 新会话 | `cd permission && node --test test`，再在新会话里对任一**已经派出去**的子代理调一次 `set_child_permission`（运行中期望 `applied=live`、已停下期望 `applied=persisted`；把权限改到超过自己的那次期望被拒） |
-| `delegate/` 任何文件 | 重装子插件（`install.*` 第 2b-2 / 4c-4 / 4c-5 步：稳定副本 + `dsh plugin --profile <p> add`）+ **重启 dsh** + 新会话 | `cd delegate && node --test test`；再在新会话里让调度者用一次 `delegate`（给 `description` / `prompt` 与要拿的工具名），核对返回的 `tools` / `tools_note` 与子代理实际拿到的工具面 |
+| `preset/` 任何文件（含改委派能力 / 工具面映射） | 重新生成 + 重装 bundle + **重启 dsh** + 在**新对话**里选「Adg 多智能体模式」（前三步 `install.*` 会自动做） | `README.md` 的「真实挂载验证」一节做一次**真实挂载** —— 静态自检证明不了挂载 |
+| 只切换注入组 / 味道（同一份源文件分四种味道、四个稳定落点） | 重新生成 + 重装 bundle + **重启 dsh** + 新会话 | 先看该 profile 的 `node_modules/dsh-adg-preset` 链接的是哪一份稳定目录，再用 `tools/check-bundle-flavor.mjs <那份文件> <味道键>` 断言那一份（`install.*` 装完已经这么断言） |
+| `notify/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（稳定副本 + `dsh plugin --profile <p> add` 的步骤号见 `notify/AGENTS.md` 的「生效方式」） | `cd notify && node --test test`；再在新会话里把 `notify_user` 写进那次委派的 `tools`、让它真调一次 |
+| `permission/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（步骤号见 `permission/AGENTS.md` 的「生效方式」） | `cd permission && node --test test`；再在新会话里对任一**已经派出去**的子代理调一次 `set_child_permission`（运行中期望 `applied=live`、已停下期望 `applied=persisted`；把权限改到超过自己的那次期望被拒） |
+| `delegate/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（装进 profile 的步骤号见本文件「Context Loading」表的 `delegate` 行） | `cd delegate && node --test test`；再在新会话里让调度者用一次 `delegate`（给 `description` / `prompt` 与要拿的工具名），核对返回的 `tools` / `tools_note` 与子代理实际拿到的工具面 |
 | composition 里写的 `@deepseek-ai/*` 包名 | 包名会随 dsh 升级**改名**，改完必须真实挂载 | `agentPresets.resolve('adg')` 的 `.broken` 为空；用旧名会报 `… never started` |
 | `browser/` 任何文件 | **重新跑一次 `install.*` 即生效，不用重启** —— 它是用户根下的普通文件，不是 preset 也不是插件 | `node "${DSH_HOME:-~/.dsh}/browser/cli.mjs" profile` |
-| `desktop/` 任何文件 | 同上口径：**重新跑一次 `install.*` 即生效，不用重启**（用户根下的普通文件）。但要注意**调用它的那一次会话**：要真正驱动普通用户窗口，必须跑在完全权限（`danger-full-access`）下，受限会话的 Low 完整性级别会被 UIPI 拦下且静默丢事件 | `node "${DSH_HOME:-~/.dsh}/desktop/cli.mjs" profile`；注入类命令只认 `CHANGED=true` 与 `CURSOR_LANDED=true` |
+| `desktop/` 任何文件 | 同 `browser/` 口径：**重跑一次 `install.*` 即生效，不用重启**（用户根下的普通文件）；但真正驱动普通用户窗口的那一次会话必须跑在完全权限（`danger-full-access`）下 —— 受限会话的 Low 完整性级别会被 UIPI 拦下且**静默丢事件**（细节见 `desktop/AGENTS.md` 的「生效方式」节） | `node "${DSH_HOME:-~/.dsh}/desktop/cli.mjs" profile`；注入类命令只认 `CHANGED=true` 与 `CURSOR_LANDED=true` |
 | 本仓库任何 `.md` 文档 | 立即生效（只是文件） | 按 `adg-doc-criterion` 技能的质量红线清单自检 |
 
 ## Project Map
 
 | 模块 | 一句话职责 | 规则见 |
 |---|---|---|
-| `preset/` | Adg preset 的定义：调度 persona（「你手上的子代理」段 + 【拆解立目标】/【派给谁】等约束段）与 delegation 组里**唯一一条委派行 `agent`**（**行数以 `node tools/check-preset.mjs` 当场报出的为准**）；`preset.yml` / `agent.cordis.yml` / `bundle.package.json` 是 **bundle 的源**（由 `tools/gen-preset-bundle.mjs` 生成、装进 profile 的 `dsh.profile.bundles`） | `preset/AGENTS.md` |
-| `tools/` | `check-preset.mjs`（preset 的零依赖静态校验器，**不是 YAML 解析器**）+ `gen-preset-bundle.mjs`（从 `preset/` 源文件生成 bundle 的构建脚本，**产物不许手改**）+ 味道表 / 探测 / 产物自检 | `tools/AGENTS.md` |
+| `preset/` | Adg preset 的定义：调度 persona（`## 你手上的子代理` 名册 + 分派与验收规则）与 `delegation` 组里**唯一一条委派行 `agent`**（行数以 `node tools/check-preset.mjs` 当场报出的为准）；`preset.yml` / `agent.cordis.yml` / `bundle.package.json` 是 **bundle 的源**（生成与落点见 `tools/AGENTS.md` 与本模块「生效方式」） | `preset/AGENTS.md` |
+| `tools/` | 六个脚本：`check-preset.mjs`（preset 的零依赖静态校验器，**不是 YAML 解析器**）+ `gen-preset-bundle.mjs`（从 `preset/` 源文件生成 bundle 的构建脚本，**产物不许手改**）+ 味道表 / 探测 / 产物自检；`KNOWN_TOOLS` 是工具名合法名单的唯一来源 | `tools/AGENTS.md` |
 | `browser/` | 默认无头的 Chromium 系浏览器驱动（Chrome / Brave / Edge 探测）+ 最小 CDP 驱动（零依赖，唯一入口 `cli.mjs`） | `browser/AGENTS.md` |
-| `notify/` | 仓库内部第一方子插件 **`adg-notify`**：注册工具 `notify_user`（参数 `message` 必填 / `title` 可选；Windows toast 提醒，**单向不阻塞** —— 只用它把状态告诉人，别用它等人回话） | `notify/AGENTS.md` |
-| `permission/` | 仓库内部第一方子插件 **`adg-permission`**：注册工具 `set_child_permission`（参数 `agent_id` / `mode` 必填），让调度者把一个**已经派出去**的子代理改到新的文件权限。只改 `sandbox/mode`、**不碰审批**（子代理的审批一律 `never`）；两条守卫在代码里 —— 目标必须是自己派出去的（`listDescendants`），且**不得超过调用方自己当前的模式** | `permission/AGENTS.md` |
-| `delegate/` | 仓库内部第一方子插件 **`adg-delegate`**：注册全局层工具 `delegate`（参数 `description` / `prompt` 必填，`tools` / `persona` / `background` 可选），**唯一的委派入口** —— 只有调度者拿得到；每次委派现给子代理目标与工具面（`tools` 省略＝继承调用方全部减内置 deny；点了未知名会被逐条剔除并记进返回的 `tools_note`），六个内置 deny 不可放宽 | `delegate/AGENTS.md` |
-| `settings/` | 仓库内部第一方子插件 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（浏览器半边 `client.js` + 宿主半边 `index.js` 的同源路由 `/api/adg-settings/settings` + 设置文件 `<DSH_PROFILE_DIR|DSH_HOME|~/.dsh>/adg-settings.json`，本机实际落在当前 profile 目录下）。**一套登记表驱动的框架** —— 加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 客户端 DICT 两条文案（zh/en），宿主与客户端逻辑都不用改；现存三项由 `adg-notify` 消费（通知默认标题 / 响提示音 / 通知常驻），**技术类键不许进页面** | `settings/AGENTS.md` |
-| `desktop/` | 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附 PowerShell 桥 `scripts/bridge.ps1`）：`profile` / `screen` / `windows` / `uia` / `point` / `invoke` / `verify` 与 `click` / `move` / `type` / `key` / `scroll`（SendInput 合成输入）。**Windows 专用**；注入类命令的成功判据是可观测差异，不是 `SendInput` 的返回值 | `desktop/AGENTS.md` |
+| `notify/` | 仓库内部第一方子插件 **`adg-notify`**：注册工具 `notify_user`（单向把状态告诉人，参数与 toast 实现见 `notify/design.md`） | `notify/AGENTS.md` |
+| `permission/` | 仓库内部第一方子插件 **`adg-permission`**：注册工具 `set_child_permission`，把一个**已经派出去**的子代理改到新的文件权限（只改 `sandbox/mode`、**不碰审批**，两条守卫在代码里；参数与守卫见 `permission/design.md`） | `permission/AGENTS.md` |
+| `delegate/` | 仓库内部第一方子插件 **`adg-delegate`**：注册全局层工具 `delegate`，**唯一的委派入口**（只有调度者拿得到）；每次委派现给子代理目标与工具面（`tools` 语义、`tools_note` 与六个内置 deny 见 `delegate/design.md`） | `delegate/AGENTS.md` |
+| `settings/` | 仓库内部第一方子插件 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（客户端 + 宿主同源路由 + 设置文件）。**登记表驱动的框架** —— 加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 客户端 DICT 两条文案（zh/en），宿主与客户端逻辑都不用改；现存三项的消费方、键的真相源与「技术类键不许进页面」见 `settings/design.md` | `settings/AGENTS.md` |
+| `desktop/` | 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附 PowerShell 桥 `scripts/bridge.ps1`）：截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke。**Windows 专用**；注入类命令的成功判据是可观测差异，不是 `SendInput` 的返回值（命令清单与判据见 `desktop/design.md`） | `desktop/AGENTS.md` |
 
 **新建模块的登记义务**：在 Project Map 加一行（唯一的登记点），并按「三信号」判断要不要给新模块建 `AGENTS.md`（有独立命令 / 有模块特有红线 / 需要跨模块路由，三者有其一方建）。
 
@@ -176,7 +132,7 @@ powershell -ExecutionPolicy Bypass -File .\install.ps1 -BillionContext on -Profi
 | 检查项 | 载体 | 期望结果 |
 |---|---|---|
 | preset 源文件的静态合规 | 机检：`node tools/check-preset.mjs` | exit 0。**允许 WARN**；ERROR 的含义只有一个 —— 这次委派必然抛错。跑完读它自己打印的摘要行，**不要把读数写进文档**（取值范围与结构性判据都在脚本里，读数会漂） |
-| 四种味道的生成物都注入正确 | 机检：四条 `gen-preset-bundle.mjs … && node tools/check-bundle-flavor.mjs … <味道键>`（完整四条见「命令」章；**改了 `preset/agent.cordis.yml` / `tools/gen-preset-bundle.mjs` / `tools/flavors.mjs` 时必须跑**） | 四条都 exit 0。`check-preset.mjs` 只看源文件，产物是它的盲区，只跑 plain 证明不了注入生效 |
+| 四种味道的生成物都注入正确 | 机检：四条 `gen-preset-bundle.mjs … && node tools/check-bundle-flavor.mjs … <味道键>`（完整四条见 `preset/AGENTS.md` 与 `tools/AGENTS.md` 的「命令」节；**改了 `preset/agent.cordis.yml` / `tools/gen-preset-bundle.mjs` / `tools/flavors.mjs` 时必须跑**） | 四条都 exit 0。`check-preset.mjs` 只看源文件，产物是它的盲区，只跑 plain 证明不了注入生效 |
 | preset 真的挂得上 | 机检：按 `README.md`「真实挂载验证」一节做一次**真实挂载** | `agentPresets.resolve('adg')` 的 `.broken` 为空，且委派行**恰好一条、`toolName` 唯一**。静态自检证明不了挂载 |
 | 浏览器工具链 | 机检：`cd browser && node --test test`；改了 `browser/` 再按 `browser/testing-guide.md` 的「交付前的最小闭环」一节跑一次真机闭环 | 单元测试全绿；真机闭环每步的 `STATE=` 与期望一致 |
 | 通知子插件 | 机检：`cd notify && node --test test` | 全绿（零依赖，不弹窗） |

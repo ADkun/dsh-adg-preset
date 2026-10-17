@@ -1,10 +1,3 @@
----
-title: delegate 模块
-owner: Adg preset 维护者
-status: current
-last_reviewed: 2026-10-05
----
-
 # AGENTS.md — delegate（`delegate` 插件）
 
 本模块是仓库内部的第一方子插件（与 `notify/`、`permission/` 同形制）：包名 `adg-delegate`，在**全局层**注册工具 `delegate`，

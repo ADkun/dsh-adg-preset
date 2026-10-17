@@ -117,7 +117,7 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 | 建议 `tools` | `read` `read_image` `write` `glob` `grep` `pwsh` `web_search` `web_fetch` `job_list` `job_output` `job_kill` `notify_user` |
 | 建议 persona 要点（【目标】/【要干什么】） | 对已有改动做对抗性审查 —— 找 bug、找边界条件、找与需求不符之处，并尽量用只读命令或测试验证。需要 `git log -S` / `git blame` / 测试命令的只读核对也归它（它带 `pwsh`，⑤ 不带） |
 | 建议 persona 要点（【不要干什么】） | 只报告，**不修改被审对象与任何既有文件**。`write` 只有一种用途：把程序化验证用的**临时脚本**写进平台临时目录（用完删除，不留痕迹）；拿它改仓库里的任何文件、或「顺手修一下」，都算越界 |
-| 建议 persona 要点（【验收标准】） | 每条结论给出文件路径与行号或命令依据；上游 API / 规范 / 版本这类可查证的事用 `web_search` / `web_fetch` 去核（别停在推断），剩下无法核实的推断必须显式标注为推断 |
+| 建议 persona 要点（【验收标准】） | 每条结论给出文件路径 + 符号名/小节名，或命令依据；上游 API / 规范 / 版本这类可查证的事用 `web_search` / `web_fetch` 去核（别停在推断），剩下无法核实的推断必须显式标注为推断 |
 | 深水区 | 无专门技能；口径内联进 `prompt` |
 
 **⑦ 不继承写者的编辑内容** —— 要在 `prompt` 里点名验证什么、要它给什么证据。另派一个给它只给 `read` / `grep` / `pwsh` 的最小面也成立。
@@ -134,7 +134,7 @@ Adg 只有一个委派工具：`delegate`（第一方子插件 `adg-delegate`，
 ## 技能怎么给：一个路径 + 一句话
 
 ```
-先 read `C:\Users\<你>\.dsh\skills\adg-file-ops\SKILL.md` 再动手；它是这次干活的判据。
+先 read `${DSH_HOME:-~/.dsh}/skills/adg-file-ops/SKILL.md` 再动手；它是这次干活的判据。
 ```
 
 | 这一次委派是什么 | 给哪份技能路径 | 前提 |

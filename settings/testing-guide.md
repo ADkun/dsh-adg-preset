@@ -1,3 +1,10 @@
+---
+title: settings 模块测试指南
+owner: Adg preset 维护者
+status: current
+last_reviewed: 2026-10-15
+---
+
 # testing-guide.md — settings（验证：用例全表、消费方契约、未观测项）
 
 本文件回答「我要怎么相信它是对的」。设计见 [design.md](design.md) 的不变量 I1..I14；路由与红线见 [AGENTS.md](AGENTS.md)。

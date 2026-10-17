@@ -1,10 +1,3 @@
----
-title: permission 模块
-owner: Adg preset 维护者
-status: current
-last_reviewed: 2026-10-05
----
-
 # AGENTS.md — permission（`set_child_permission` 插件）
 
 本模块是仓库的**第三枚第一方子插件**：包名 `adg-permission`，在**全局层**注册工具 `set_child_permission`，让**调度智能体**把自己派出去、却还停在旧文件权限的子代理改到新权限（权限在委派那一刻被捕获，事后想纠正只有这一条路或"停掉重派"）。
