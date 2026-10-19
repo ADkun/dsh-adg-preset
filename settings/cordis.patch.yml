@@ -16,3 +16,5 @@
         notifyTitle: 'DSH 通知'
         notifySound: true
         notifyPersist: true
+        skillInjectEnabled: true
+        skillInjectText: ''

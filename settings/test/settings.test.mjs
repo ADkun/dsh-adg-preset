@@ -32,10 +32,21 @@ import {
   readUserDefaults,
   resolveRequest,
 } from '../../notify/lib/user-settings.mjs';
+import {
+  MAX_TEXT_LENGTH,
+  STORE_NAME as INJECT_STORE_NAME,
+  USER_DEFAULTS as INJECT_DEFAULTS,
+  readUserDefaults as readInjectDefaults,
+} from '../../skill-inject/lib/user-settings.mjs';
 
 /** 客户端 half 写死在 client.js 里的那两条常量（这里钉住契约）。 */
 const ROUTE_PREFIX = '/api/adg-settings';
 const ROUTE = `${ROUTE_PREFIX}/settings`;
+
+/** 全 `default` 的 origin（新增登记项时不必逐条改断言）。 */
+function allDefaults() {
+  return Object.fromEntries(FIELDS.map((field) => [field.key, 'default']));
+}
 
 /** 一个字段的界：字符串给 `maxLength`，整数给 `[min, max]`，布尔什么都没有。 */
 function boundsOf(field) {
@@ -254,8 +265,8 @@ test('buildEffective: 设置文件 > 插件 Config > 内置默认，逐格标出
     configured: { notifyTitle: '来自 Config', notifySound: true },
     defaults: DEFAULTS,
   });
-  assert.deepEqual(value, { notifyTitle: '来自 Config', notifySound: false, notifyPersist: true });
-  assert.deepEqual(origin, { notifyTitle: 'configured', notifySound: 'stored', notifyPersist: 'default' });
+  assert.deepEqual(value, { ...DEFAULTS, notifyTitle: '来自 Config', notifySound: false });
+  assert.deepEqual(origin, { ...allDefaults(), notifyTitle: 'configured', notifySound: 'stored' });
 });
 
 // ── 设置文件的落点 ────────────────────────────────────────────────────────────
@@ -295,6 +306,28 @@ test('漂移: 设置页登记的 notify 三项与 adg-notify 真正读的键/默
   assert.equal(NOTIFY_STORE_NAME, STORE_NAME, '设置文件名是两个模块之间的契约');
 });
 
+test('漂移: 设置页登记的注入两项与 adg-skill-inject 真正读的键/默认值/界一致', () => {
+  const consumed = FIELDS.filter((field) => field.consumer === 'adg-skill-inject').map((field) => field.key);
+  assert.deepEqual(consumed, Object.keys(INJECT_DEFAULTS), 'adg-skill-inject 读的键必须与登记表逐项对上');
+  for (const field of FIELDS.filter((item) => item.consumer === 'adg-skill-inject')) {
+    assert.deepEqual(INJECT_DEFAULTS[field.key], field.default, `${field.key} 的默认值两边不一致`);
+  }
+  assert.equal(fieldFor('skillInjectText').maxLength, MAX_TEXT_LENGTH);
+  assert.equal(INJECT_STORE_NAME, STORE_NAME, '设置文件名是两个模块之间的契约');
+});
+
+test('漂移: 注入插件读得懂设置页写的开关与自定义正文，空正文即跟随技能文件', () => {
+  withTempDir((dir) => {
+    fs.writeFileSync(
+      path.join(dir, STORE_NAME),
+      `${JSON.stringify({ skillInjectEnabled: false, skillInjectText: '自定义正文' }, undefined, 2)}\n`,
+    );
+    assert.deepEqual(readInjectDefaults(), { skillInjectEnabled: false, skillInjectText: '自定义正文' });
+    fs.writeFileSync(path.join(dir, STORE_NAME), JSON.stringify({ skillInjectText: '' }));
+    assert.deepEqual(readInjectDefaults(), { skillInjectEnabled: true, skillInjectText: '' });
+  });
+});
+
 test('漂移: notify 的 readUserDefaults 认得设置页写下的那份文件', () => {
   withTempDir((dir) => {
     fs.writeFileSync(
@@ -327,7 +360,7 @@ test('GET /settings: 没保存过时三层里的第三层生效，并给出登�
       assert.equal(headers['content-type'], 'application/json; charset=utf-8');
       assert.equal(headers['cache-control'], 'no-store');
       assert.deepEqual(json.value, DEFAULTS);
-      assert.deepEqual(json.origin, { notifyTitle: 'default', notifySound: 'default', notifyPersist: 'default' });
+      assert.deepEqual(json.origin, allDefaults());
       assert.deepEqual(json.stored, {});
       assert.deepEqual(json.unknown, []);
       assert.deepEqual(json.dropped, []);
@@ -343,8 +376,18 @@ test('POST 写盘 + GET 读回：保存后 origin 变成 stored，文件是 0600
     return request(route, 'POST', { notifyTitle: '自定义标题', notifySound: false, notifyPersist: false })
       .then(({ status, json }) => {
         assert.equal(status, 200);
-        assert.deepEqual(json.value, { notifyTitle: '自定义标题', notifySound: false, notifyPersist: false });
-        assert.deepEqual(json.origin, { notifyTitle: 'stored', notifySound: 'stored', notifyPersist: 'stored' });
+        assert.deepEqual(json.value, {
+          ...DEFAULTS,
+          notifyTitle: '自定义标题',
+          notifySound: false,
+          notifyPersist: false,
+        });
+        assert.deepEqual(json.origin, {
+          ...allDefaults(),
+          notifyTitle: 'stored',
+          notifySound: 'stored',
+          notifyPersist: 'stored',
+        });
         const file = path.join(dir, STORE_NAME);
         assert.deepEqual(JSON.parse(fs.readFileSync(file, 'utf8')), {
           notifyTitle: '自定义标题',
@@ -374,8 +417,8 @@ test('POST 是逐键合并不是整份替换：后一次保存不会抹掉前一
       })
       .then(({ status, json }) => {
         assert.equal(status, 200);
-        assert.deepEqual(json.value, { notifyTitle: 'A', notifySound: false, notifyPersist: true });
-        assert.deepEqual(json.origin, { notifyTitle: 'stored', notifySound: 'stored', notifyPersist: 'default' });
+        assert.deepEqual(json.value, { ...DEFAULTS, notifyTitle: 'A', notifySound: false });
+        assert.deepEqual(json.origin, { ...allDefaults(), notifyTitle: 'stored', notifySound: 'stored' });
       });
   });
 });
@@ -433,10 +476,10 @@ test('插件 Config 是中间层：页面没保存过时用它，保存过的键
     );
     return request(route, 'GET')
       .then(({ json }) => {
-        assert.deepEqual(json.value, { notifyTitle: '来自 Config', notifySound: true, notifyPersist: false });
+        assert.deepEqual(json.value, { ...DEFAULTS, notifyTitle: '来自 Config', notifyPersist: false });
         assert.deepEqual(json.origin, {
+          ...allDefaults(),
           notifyTitle: 'configured',
-          notifySound: 'default',
           notifyPersist: 'configured',
         });
         return request(route, 'POST', { notifySound: false });
@@ -460,7 +503,7 @@ test('DELETE /settings: 删掉文件、回到 Config 与内置默认，日志说
         assert.equal(status, 200);
         assert.equal(fs.existsSync(file), false);
         assert.deepEqual(json.value, DEFAULTS);
-        assert.deepEqual(json.origin, { notifyTitle: 'default', notifySound: 'default', notifyPersist: 'default' });
+        assert.deepEqual(json.origin, allDefaults());
         assert.ok(logged.info.some((line) => line.includes('settings cleared')));
       });
   });

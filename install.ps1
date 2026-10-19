@@ -445,6 +445,51 @@ if ($SkipPackages) {
   }
 }
 
+# ── 2b-4. skill-inject/ 插件（思考框架注入）──────────────────────────────────
+# 与 2b / 2b-1 / 2b-2 / 2b-3 同形（普通插件包、file: 依赖、用户根下的稳定副本）。
+# 它不注册任何工具：在 agent/created 时判定"这个 agent 是不是 Adg 调度者（origin 非 subagent
+# 且 preset 为 adg）"，是就在它自己的 agent.ctx 上注册一段系统提示词 section，正文取自
+# 用户技能根的 skills\thinking-framework\SKILL.md（本脚本第 1 节拷的那份 —— 所以此插件的
+# 注入正文与技能文件永远来自同一次安装）。漏装的症状是调度者的系统提示词里没有思考框架段
+# （退回"靠模型自觉 read"的旧状态），不报错。
+$injectSrc = Join-Path $here 'skill-inject'
+$injectDest = Join-Path $root 'plugins\adg-skill-inject'
+$injectNote = ''
+$injectSkipped = $false
+# 4c-9 的断言要用它；在这里初始化，免得某个分支没赋值就被读。
+$injectInProfile = ''
+if ($SkipPackages) {
+  $injectNote = '跳过（-SkipPackages）'
+  $injectSkipped = $true
+} elseif (-not (Test-Path -LiteralPath (Join-Path $injectSrc 'package.json'))) {
+  $injectNote = "未找到 $injectSrc，跳过 skill-inject/ 插件部署"
+  $injectSkipped = $true
+} else {
+  # 本清单与 skill-inject/package.json 的 `files` 字段**故意不同**：多一个 `package.json`
+  # （稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。有子目录 lib\，先建出来。
+  New-Item -ItemType Directory -Force -Path (Join-Path $injectDest 'lib') | Out-Null
+  $injectFiles = @('index.mjs', 'client.js', 'lib\section.mjs', 'lib\user-settings.mjs', 'cordis.patch.yml', 'package.json', 'AGENTS.md', 'design.md', 'testing-guide.md')
+  $injectCopied = 0
+  $injectMissing = @()
+  foreach ($rel in $injectFiles) {
+    $from = Join-Path $injectSrc $rel
+    if (-not (Test-Path -LiteralPath $from)) { $injectMissing += $rel; continue }
+    $to = Join-Path $injectDest $rel
+    $same = (Test-Path -LiteralPath $to) -and ((Get-FileHash -LiteralPath $from -Algorithm SHA256).Hash -eq (Get-FileHash -LiteralPath $to -Algorithm SHA256).Hash)
+    if ($same) { continue }
+    Copy-Item -Force -LiteralPath $from -Destination $to
+    $injectCopied += 1
+  }
+  if ($injectMissing.Count -gt 0) {
+    $injectNote = "skill-inject/ 部署不完整：源里缺 $($injectMissing -join ', ')"
+    $injectSkipped = $true
+  } elseif ($injectCopied -gt 0) {
+    $injectNote = "skill-inject/ 插件 -> $injectDest（本次更新 $injectCopied 个文件）"
+  } else {
+    $injectNote = "skill-inject/ 插件 -> $injectDest（已是最新，无需拷贝）"
+  }
+}
+
 # ── 3. preset bundle：四种味道全部生成 → 各自落到自己的稳定位置（每 profile 只 link 一份）──
 # preset 是一个 **bundle**：仓库里的 preset\ 是唯一文本真相源，本脚本每次安装都重跑生成器
 # 把它编译成 bundle\adg-*\cordis.patch.yml，再拷进 $DSH_HOME\bundles\ 下的四个稳定目录。
@@ -809,6 +854,53 @@ foreach ($name in $Profiles) {
       $installNotes += "$name : adg-settings 包在位，但 manifest 缺一格（dependencies=$settingsDepLine / dsh.profile.bundles=$settingsListedLine）—— 手工补上再重启"
     }
   }
+
+  # 4c-8. adg-skill-inject 插件（思考框架注入）也装进这个 profile。
+  # 与 4c-6 同形（file: 依赖 + reconcile）。漏装的后果：调度者系统提示词里没有思考框架段
+  # （不报错、不崩 —— 静默退回"靠模型自觉 read"的旧状态），所以同样要如实报告。
+  if ($injectSkipped) {
+    $installNotes += "$name : adg-skill-inject 未部署（$injectNote）—— 调度者系统提示词里不会有思考框架段"
+  } else {
+    $injectInProfile = Join-Path $profileDir "node_modules\adg-skill-inject\package.json"
+    $injectNeedInstall = -not (Test-Path -LiteralPath $injectInProfile)
+    if (-not $injectNeedInstall) {
+      $installNotes += "$name : adg-skill-inject 已经在 node_modules 里"
+    } elseif (-not $dshCmd) {
+      $installNotes += "$name : 未找到 dsh 命令，跳过 adg-skill-inject 安装 —— 请在该 profile 里执行 dsh plugin --profile $name add `"file:$injectDest`""
+    } else {
+      Push-Location $profileDir
+      try {
+        # 同 4a / 4c / 4c-2 / 4c-4 / 4c-6：走 cmd /c 收流，否则 PS 5.1 下 pnpm 的 stderr 会变成终止错误。
+        $injectLog = Join-Path $profileDir 'pnpm-adg-skill-inject.log'
+        cmd /c "dsh plugin --profile $name add `"file:$injectDest`" > `"$injectLog`" 2>&1"
+        $injectExit = $LASTEXITCODE
+      } finally { Pop-Location }
+      if (Test-Path -LiteralPath $injectInProfile) {
+        Remove-Item -LiteralPath $injectLog -Force -ErrorAction SilentlyContinue
+        $installNotes += "$name : 已装 adg-skill-inject（dsh plugin add exit $injectExit）"
+      } else {
+        $installNotes += "$name : adg-skill-inject 没装进 $profileDir（dsh plugin add exit $injectExit）—— 关掉 dsh 后重跑本脚本（日志 $injectLog）"
+        if (Test-Path -LiteralPath $injectLog) { Write-Host (Get-Content -LiteralPath $injectLog -Raw -Encoding UTF8) }
+      }
+    }
+  }
+
+  # 4c-9. 读回来断言 adg-skill-inject 的三格（判据与 4c-1 / 4c-3 / 4c-5 / 4c-7 一样）。
+  if (-not $injectSkipped) {
+    $injectReread = Get-Content -LiteralPath $manifest -Raw -Encoding UTF8 | ConvertFrom-Json
+    $injectDepLine = @($injectReread.dependencies.PSObject.Properties | Where-Object { $_.Name -eq 'adg-skill-inject' }).Count -gt 0
+    $injectListedLine = @($injectReread.dsh.profile.bundles) -contains 'adg-skill-inject'
+    $injectPkgName = ''
+    if (Test-Path -LiteralPath $injectInProfile) {
+      $injectPkgName = (Get-Content -LiteralPath $injectInProfile -Raw -Encoding UTF8 | ConvertFrom-Json).name
+    }
+    if ($injectPkgName -ne 'adg-skill-inject') { $injectNeedInstall = $true }
+    if ($injectDepLine -and $injectListedLine -and ($injectPkgName -eq 'adg-skill-inject')) {
+      $installNotes += "$name : adg-skill-inject 三格齐（node_modules 真目录 + dependencies + dsh.profile.bundles）"
+    } elseif ($injectPkgName -eq 'adg-skill-inject') {
+      $installNotes += "$name : adg-skill-inject 包在位，但 manifest 缺一格（dependencies=$injectDepLine / dsh.profile.bundles=$injectListedLine）—— 手工补上再重启"
+    }
+  }
 }
 
 # ── 稳定副本 ↔ profile 副本：逐文件核一遍，别让"新加的文件没传播"静默发生 ─────────────
@@ -820,7 +912,8 @@ foreach ($spec in @(
     @{ Pkg = 'adg-notify'; Dest = $notifyDest },
     @{ Pkg = 'adg-permission'; Dest = $permDest },
     @{ Pkg = 'adg-delegate'; Dest = $delegateDest },
-    @{ Pkg = 'adg-settings'; Dest = $settingsDest })) {
+    @{ Pkg = 'adg-settings'; Dest = $settingsDest },
+    @{ Pkg = 'adg-skill-inject'; Dest = $injectDest })) {
   if (-not (Test-Path -LiteralPath $spec.Dest)) { continue }
   $expected = @()
   foreach ($f in Get-ChildItem -LiteralPath $spec.Dest -Recurse -File) {
@@ -848,6 +941,7 @@ Write-Host "  notify  -> $notifyNote（notify_user 工具；每个 profile 的�
 Write-Host "  permission -> $permNote（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
 Write-Host "  delegate -> $delegateNote（delegate 工具 —— 现有的**唯一委派入口**；只有调度智能体拿得到，子代理的永禁名单里有 delegate / set_child_permission / ask_user_question / agent。同一枚插件还提供 ask_user —— 子代理的提问通道，可给子代理）"
 Write-Host "  settings -> $settingsNote（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
+Write-Host "  skill-inject -> $injectNote（思考框架注入：把 skills\thinking-framework\SKILL.md 正文注入 Adg 调度者的系统提示词，子代理不注入）"
 foreach ($note in $installNotes) { Write-Host "  profile -> $note" }
 Write-Host ""
 Write-Host "下一步：重启 dsh，然后在新建对话里选择「Adg 多智能体模式」。"
@@ -858,6 +952,7 @@ Write-Host "（adg-notify 插件：装了之后必须重启 dsh 才注册 ——
 Write-Host "（adg-permission 插件：同样要重启 dsh 才注册；它不进任何 allow —— 只有调度智能体用。）"
 Write-Host "（adg-delegate 插件：同样要重启 dsh 才注册；它是唯一的委派入口 —— 没它调度者开不了子代理。）"
 Write-Host "（adg-settings 插件：同样要重启 dsh 才注册 —— 重启后设置里才会出现「Adg 设置」；没装它只是少一页设置，通知的出厂默认照旧。）"
+Write-Host "（adg-skill-inject 插件：同样要重启 dsh 才注册 —— 重启后新建的 Adg 会话系统提示词里才有思考框架段；运行中的旧会话不补挂。它随第 1 节的技能拷贝一起工作：技能正文更新后重跑本脚本 + 重启即换。）"
 if ($packageFailed) {
   Write-Host ""
   Write-Host "注意：至少有一步 pnpm 没成功，$bundleName 可能还没装进 profile（上面的 profile 行里写明了）。" -ForegroundColor Yellow

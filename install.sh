@@ -471,6 +471,48 @@ else
   fi
 fi
 
+# ── 2b-4. skill-inject/ 插件（思考框架注入）──────────────────────────────────
+# 与 2b / 2b-1 / 2b-2 / 2b-3 同形（普通插件包、file: 依赖、用户根下的稳定副本）。
+# 它不注册任何工具：在 agent/created 时判定"这个 agent 是不是 Adg 调度者（origin 非 subagent
+# 且 preset 为 adg）"，是就在它自己的 agent.ctx 上注册一段系统提示词 section，正文取自
+# 用户技能根的 skills/thinking-framework/SKILL.md（本脚本第 1 节拷的那份）。漏装的症状是
+# 调度者的系统提示词里没有思考框架段（静默退回"靠模型自觉 read"的旧状态），不报错。
+inject_src="$here/skill-inject"
+inject_dest="$root/plugins/adg-skill-inject"
+inject_note=""
+inject_skipped=0
+# 4c-9 的断言要用它；在这里初始化，免得 set -u 下某个分支没赋值就展开而整个脚本退出。
+inject_in_profile=""
+if [ ! -f "$inject_src/package.json" ]; then
+  inject_note="未找到 $inject_src，跳过 skill-inject/ 插件部署"
+  inject_skipped=1
+else
+  # 本清单与 skill-inject/package.json 的 `files` 字段**故意不同**：多一个 `package.json`
+  # （稳定副本要能当包被 `dsh plugin add "file:…"` 解析）。有子目录 lib/。
+  mkdir -p "$inject_dest/lib"
+  inject_copied=0
+  for inject_rel in index.mjs client.js lib/section.mjs lib/user-settings.mjs cordis.patch.yml \
+    package.json AGENTS.md design.md testing-guide.md; do
+    if [ ! -f "$inject_src/$inject_rel" ]; then
+      inject_note="skill-inject/ 部署不完整：源里缺 $inject_rel"
+      inject_skipped=1
+      break
+    fi
+    if [ -f "$inject_dest/$inject_rel" ] && cmp -s "$inject_src/$inject_rel" "$inject_dest/$inject_rel"; then
+      continue
+    fi
+    cp "$inject_src/$inject_rel" "$inject_dest/$inject_rel"
+    inject_copied=$((inject_copied + 1))
+  done
+  if [ "$inject_skipped" -eq 0 ]; then
+    if [ "$inject_copied" -gt 0 ]; then
+      inject_note="skill-inject/ 插件 -> $inject_dest（本次更新 $inject_copied 个文件）"
+    else
+      inject_note="skill-inject/ 插件 -> $inject_dest（已是最新，无需拷贝）"
+    fi
+  fi
+fi
+
 # ── 3. preset bundle：四种味道全部生成 → 各自落到自己的稳定位置（每 profile 只 link 一份）──
 # 源文件永远只有 preset/preset.yml + preset/agent.cordis.yml；bundle/adg-*/ 是构建产物
 # （在 .gitignore 里），每次安装都重新生成，所以没有人需要手改 patch。
@@ -766,6 +808,45 @@ for name in $profiles; do
         done
   fi
 
+  # 4c-8. adg-skill-inject 插件（思考框架注入）也装进这个 profile。同 4c-6 形。
+  # 漏装的后果：调度者系统提示词里没有思考框架段（静默退回"靠模型自觉"的旧状态），要如实报告。
+  if [ "$inject_skipped" -eq 1 ]; then
+    echo "  profile -> $name : adg-skill-inject 未部署（$inject_note）—— 调度者系统提示词里不会有思考框架段" >&2
+  else
+    inject_in_profile="$profile_dir/node_modules/adg-skill-inject/package.json"
+    if [ -f "$inject_in_profile" ]; then
+      echo "  profile -> $name : adg-skill-inject 已经在 node_modules 里"
+    elif ! command -v dsh >/dev/null 2>&1; then
+      echo "  profile -> $name : 未找到 dsh 命令，跳过 adg-skill-inject 安装 —— 请在该 profile 里执行 dsh plugin --profile $name add file:$inject_dest" >&2
+    elif (cd "$profile_dir" && dsh plugin --profile "$name" add "file:$inject_dest"); then
+      echo "  profile -> $name : 已装 adg-skill-inject"
+    else
+      echo "  profile -> $name : adg-skill-inject 没装进 $profile_dir（dsh plugin add 失败）—— 关掉 dsh 后重跑本脚本" >&2
+    fi
+  fi
+
+  # 4c-9. 读回来断言 adg-skill-inject 的三格（同 4c-1 / 4c-3 / 4c-5 / 4c-7 的口径与理由）。
+  if [ "$inject_skipped" -eq 0 ]; then
+    node -e '
+      const fs = require("fs");
+      const [manifest, pkgJson, pkgName] = process.argv.slice(1);
+      let name = "";
+      try { name = JSON.parse(fs.readFileSync(pkgJson, "utf8")).name; } catch { name = ""; }
+      const j = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      const depLine = Boolean(j.dependencies && j.dependencies[pkgName]);
+      const listed = Boolean(j.dsh && j.dsh.profile && (j.dsh.profile.bundles || []).includes(pkgName));
+      if (name === pkgName && depLine && listed) {
+        console.log("三格齐（node_modules 真目录 + dependencies + dsh.profile.bundles）");
+      } else if (name === pkgName) {
+        console.log("包在位，但 manifest 缺一格（dependencies=" + depLine + " / dsh.profile.bundles=" + listed + "）—— 手工补上再重启");
+      } else {
+        console.log("包不在 node_modules 里（或 package.json 读不出名字）");
+      }' "$manifest" "$inject_in_profile" adg-skill-inject \
+      | while IFS= read -r inject_verdict; do
+          echo "  profile -> $name : adg-skill-inject $inject_verdict"
+        done
+  fi
+
   node -e '
     const fs = require("fs");
     const [manifest, bundleName] = process.argv.slice(1);
@@ -825,7 +906,7 @@ for (const pair of pairs) {
     const missing = expected.filter(r => !fs.existsSync(path.join(copy, r)));
     if (missing.length) console.log("  profile -> " + name + " : " + pkg + " 的 profile 副本缺 " + missing.length + " 个文件（" + missing[0] + "…）—— 关掉 dsh 后重跑本脚本，或 dsh plugin --profile " + name + " add \"file:" + dest + "\"");
   }
-}' "$root" "adg-notify=$notify_dest" "adg-permission=$permission_dest" "adg-delegate=$delegate_dest" "adg-settings=$settings_dest"
+}' "$root" "adg-notify=$notify_dest" "adg-permission=$permission_dest" "adg-delegate=$delegate_dest" "adg-settings=$settings_dest" "adg-skill-inject=$inject_dest"
 
 echo "  browser -> $browser_note"
 echo "  desktop -> $desktop_note"
@@ -833,6 +914,7 @@ echo "  notify  -> $notify_note（notify_user 工具；每个 profile 的安装�
 echo "  delegate -> $delegate_note（delegate 工具 —— 唯一的委派入口；只有调度智能体拿得到，子代理拿不到。同一枚插件还提供 ask_user —— 子代理的提问通道，可给子代理）"
 echo "  permission -> $permission_note（set_child_permission 工具；只有调度智能体拿得到，子代理拿不到）"
 echo "  settings -> $settings_note（设置页「Adg 设置」；通知三项——默认标题 / 响提示音 / 通知常驻——在这里改，改完立即生效）"
+echo "  skill-inject -> $inject_note（思考框架注入：把 skills/thinking-framework/SKILL.md 正文注入 Adg 调度者的系统提示词，子代理不注入）"
 echo ""
 echo "下一步：重启 dsh，然后在新建对话里选择「Adg 多智能体模式」。"
 echo "（preset 走的是一条独立的 patch 层：dsh --profile <name> --dump-config 能确认它被读到，"
@@ -843,6 +925,7 @@ echo "（adg-notify 插件：装了之后必须重启 dsh 才注册 —— loade
 echo "（adg-delegate 插件：同样要重启 dsh 才注册；它是**唯一的委派入口** —— 没装它调度者手上就没有开子代理的工具。）"
 echo "（adg-permission 插件：同样要重启 dsh 才注册；它不进任何一次委派的 tools —— 只有调度智能体用。）"
 echo "（adg-settings 插件：同样要重启 dsh 才注册 —— 重启后设置里才会出现「Adg 设置」；没装它只是少一页设置，通知的出厂默认照旧。）"
+echo "（adg-skill-inject 插件：同样要重启 dsh 才注册 —— 重启后新建的 Adg 会话系统提示词里才有思考框架段；运行中的旧会话不补挂。它随第 1 节的技能拷贝一起工作：技能正文更新后重跑本脚本 + 重启即换。）"
 if [ "$package_failed" -eq 1 ]; then
   echo ""
   echo "注意：至少有一步 pnpm 没成功，$bundle_name 可能还没装进 profile（上面的 profile 行里写明了）。" >&2

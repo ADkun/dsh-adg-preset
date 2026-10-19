@@ -1,12 +1,12 @@
 # AGENTS.md — dsh-adg-preset
 
-Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、三个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面）、六份用户技能（`skills/`）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
+Adg 多智能体模式：一份 DSH agent preset（**一个调度智能体 + 它按需派出的通用子代理** —— 子代理的目标、边界、验收标准与工具面都在委派那一刻由调度者经第一方插件工具 `delegate` 现给，**没有固定专家名册**），外加两个本机操作工具链（`browser/`：默认无头的 Chromium 系浏览器驱动 + 最小 CDP 驱动；`desktop/`：零依赖的 Windows 桌面操控 CLI —— 截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke，**要真正驱动普通用户窗口必须跑在完全权限会话里**）、五个仓库内部第一方子插件（`notify/`：包名 `adg-notify`、注册工具 `notify_user`，Windows toast 提醒；`permission/`：包名 `adg-permission`、注册工具 `set_child_permission`，让调度者把自己派出去、却还停在旧文件权限的子代理改到新权限 —— 只有调度者能用，两条守卫（血缘 / 不得超过调用方）在代码里；`delegate/`：包名 `adg-delegate`、注册工具 `delegate`，**唯一的委派入口** —— 只有调度者能用，每次委派现给那一个子代理的目标与工具面；`settings/`：包名 `adg-settings`，**不注册任何工具**，在「设置」里注册一页 **Adg 设置**（登记表驱动的框架，现承载通知三项 + 思考框架注入两项，写出 `adg-settings.json`）；`skill-inject/`：包名 `adg-skill-inject`，**不注册任何工具**，把思考框架正文注入 Adg 调度者的系统提示词 —— 只注入调度者，子代理与其他 preset 一律不注入）、七份用户技能（`skills/`；其中 `thinking-framework` 的正文由 `adg-skill-inject` 注入调度者系统提示词）、一个静态自检脚本与一个把 preset 源文件生成成 bundle 的构建脚本、两个安装脚本。
 
 本文件是**给改这个仓库的人/agent 看的路由入口**：只写常驻内容（命令、红线、模块地图、质量门），设计细节一律下沉到模块文档。**给人看的项目总览与安装/使用说明在 `README.md`**（改任何东西之前先读它对应的小节）。
 
 ## 命令
 
-零运行时依赖；只要求 Node（`browser/package.json`、`desktop/package.json`、`notify/package.json`、`permission/package.json` 与 `delegate/package.json` 都声明 `>= 22`）。仓库根没有 `package.json`、没有 monorepo 构建、没有 lint 配置。
+零运行时依赖；只要求 Node（`browser/package.json`、`desktop/package.json`、`notify/package.json`、`permission/package.json`、`delegate/package.json` 与 `skill-inject/package.json` 都声明 `>= 22`）。仓库根没有 `package.json`、没有 monorepo 构建、没有 lint 配置。
 
 ```sh
 # preset 静态自检（零依赖，逐行文本扫描）：exit 0 通过 / 1 有 ERROR / 2 读不到目标文件。
@@ -47,6 +47,7 @@ node tools/gen-preset-bundle.mjs
 | 只切换注入组 / 味道（同一份源文件分四种味道、四个稳定落点） | 重新生成 + 重装 bundle + **重启 dsh** + 新会话 | 先看该 profile 的 `node_modules/dsh-adg-preset` 链接的是哪一份稳定目录，再用 `tools/check-bundle-flavor.mjs <那份文件> <味道键>` 断言那一份（`install.*` 装完已经这么断言） |
 | `notify/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（稳定副本 + `dsh plugin --profile <p> add` 的步骤号见 `notify/AGENTS.md` 的「生效方式」） | `cd notify && node --test test`；再在新会话里把 `notify_user` 写进那次委派的 `tools`、让它真调一次 |
 | `permission/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（步骤号见 `permission/AGENTS.md` 的「生效方式」） | `cd permission && node --test test`；再在新会话里对任一**已经派出去**的子代理调一次 `set_child_permission`（运行中期望 `applied=live`、已停下期望 `applied=persisted`；把权限改到超过自己的那次期望被拒） |
+| `skill-inject/` 任何文件 | 重装子插件 + **重启 dsh** + **新 Adg 会话**（步骤号见 `install.ps1` / `install.sh` 的 2b-4 / 4c-8 / 4c-9；运行中的旧 agent 不补挂 —— section 在 agent 创建那一刻注册） | `cd skill-inject && node --test test`；再在新 Adg 会话里核对系统提示词出现「# 思考框架（thinking-framework）」段、派出的子代理系统提示词里没有它（判据见 `skill-inject/testing-guide.md` 的 M 系列） |
 | `delegate/` 任何文件 | 重装子插件 + **重启 dsh** + 新会话（装进 profile 的步骤号见本文件「Context Loading」表的 `delegate` 行） | `cd delegate && node --test test`；再在新会话里让调度者用一次 `delegate`（给 `description` / `prompt` 与要拿的工具名），核对返回的 `tools` / `tools_note` 与子代理实际拿到的工具面 |
 | composition 里写的 `@deepseek-ai/*` 包名 | 包名会随 dsh 升级**改名**，改完必须真实挂载 | `agentPresets.resolve('adg')` 的 `.broken` 为空；用旧名会报 `… never started` |
 | `browser/` 任何文件 | **重新跑一次 `install.*` 即生效，不用重启** —— 它是用户根下的普通文件，不是 preset 也不是插件 | `node "${DSH_HOME:-~/.dsh}/browser/cli.mjs" profile` |
@@ -63,12 +64,13 @@ node tools/gen-preset-bundle.mjs
 | `notify/` | 仓库内部第一方子插件 **`adg-notify`**：注册工具 `notify_user`（单向把状态告诉人，参数与 toast 实现见 `notify/design.md`） | `notify/AGENTS.md` |
 | `permission/` | 仓库内部第一方子插件 **`adg-permission`**：注册工具 `set_child_permission`，把一个**已经派出去**的子代理改到新的文件权限（只改 `sandbox/mode`、**不碰审批**，两条守卫在代码里；参数与守卫见 `permission/design.md`） | `permission/AGENTS.md` |
 | `delegate/` | 仓库内部第一方子插件 **`adg-delegate`**：注册全局层工具 `delegate`，**唯一的委派入口**（只有调度者拿得到）；每次委派现给子代理目标与工具面（`tools` 语义、`tools_note` 与六个内置 deny 见 `delegate/design.md`） | `delegate/AGENTS.md` |
-| `settings/` | 仓库内部第一方子插件 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（客户端 + 宿主同源路由 + 设置文件）。**登记表驱动的框架** —— 加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 客户端 DICT 两条文案（zh/en），宿主与客户端逻辑都不用改；现存三项的消费方、键的真相源与「技术类键不许进页面」见 `settings/design.md` | `settings/AGENTS.md` |
+| `settings/` | 仓库内部第一方子插件 **`adg-settings`**：在「设置」里注册一页 **Adg 设置**（客户端 + 宿主同源路由 + 设置文件）。**登记表驱动的框架** —— 加一项配置 = 在 `lib/schema.mjs` 的 `FIELDS` 加一条登记 + 客户端 DICT 两条文案（zh/en），宿主与客户端逻辑都不用改；现存五条登记、两个消费方（通知三项 → `adg-notify`，注入两项 → `adg-skill-inject`），键的真相源与「技术类键不许进页面」见 `settings/design.md` | `settings/AGENTS.md` |
+| `skill-inject/` | 仓库内部第一方子插件 **`adg-skill-inject`**：把思考框架正文注入 **Adg 调度者**的系统提示词（不注册任何工具；正文默认取 `skills/thinking-framework/SKILL.md`、可在设置页换成自定义正文，输入框的「超思」开关控制开关；按会话头 `origin` + preset 身份逐 agent 判定，子代理与其他 preset 不注入；判据与降级见 `skill-inject/design.md`） | `skill-inject/AGENTS.md` |
 | `desktop/` | 零依赖的 **Windows 桌面操控 CLI**（唯一入口 `cli.mjs` + 随附 PowerShell 桥 `scripts/bridge.ps1`）：截屏 / 窗口与 UIA 枚举 / SendInput 合成输入 / 语义 invoke。**Windows 专用**；注入类命令的成功判据是可观测差异，不是 `SendInput` 的返回值（命令清单与判据见 `desktop/design.md`） | `desktop/AGENTS.md` |
 
 **新建模块的登记义务**：在 Project Map 加一行（唯一的登记点），并按「三信号」判断要不要给新模块建 `AGENTS.md`（有独立命令 / 有模块特有红线 / 需要跨模块路由，三者有其一方建）。
 
-不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的六份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下，均无独立命令；`adg-grill-me` 另有 `/adg-grill-me` 这个用户入口）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
+不给模块 `AGENTS.md` 的（三样信号都没有，建了就是噪音）：`skills/` 下的七份用户技能文档（`adg-delegation` / `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion` / `thinking-framework`，装到 `${DSH_HOME:-~/.dsh}/skills/` 下，均无独立命令；`thinking-framework` 的正文由 `adg-skill-inject` 注入调度者系统提示词；`adg-grill-me` 另有 `/adg-grill-me` 这个用户入口）、`install.ps1` / `install.sh`（部署脚本，无模块红线）、仓库根 `README.md` 与 `AGENTS.md`。
 
 ## 版本区（文档目录入口）
 
@@ -78,8 +80,8 @@ node tools/gen-preset-bundle.mjs
 |---|---|
 | `AGENTS.md`（本文件） | 根入口：路由（命令 / 红线 / 生效方式 / 模块地图 / 版本区 / 质量门） |
 | `README.md` | 人向总览：项目是什么、怎么装、怎么用、怎么排错 |
-| `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/`、`settings/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
-| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion`） | 六份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈 / 文档工程师角色规范（装到用户技能根） |
+| `preset/`、`tools/`、`browser/`、`desktop/`、`notify/`、`permission/`、`delegate/`、`settings/`、`skill-inject/` 各自的 `AGENTS.md` → `design.md` → `testing-guide.md` | 模块三件套：路由 → 设计（不变量）→ 验证（用例全表与未观测项） |
+| `skills/adg-delegation/SKILL.md`（另有 `adg-browser-use` / `adg-computer-use` / `adg-file-ops` / `adg-grill-me` / `adg-doc-criterion` / `thinking-framework`） | 七份用户技能：委派能力与工具面映射 / 浏览器 / 桌面 / 文件操作 / 方案压测访谈 / 文档工程师角色规范 / 思考框架（正文由 `adg-skill-inject` 注入调度者系统提示词，技能文件是正文的事实源） |
 | `docs-work/`（**临时工作目录，不在版本区**） | 过程件（changelog / handoff / pending / 工作稿 / 证据快照）；滚动更新、可被清理，任务交付前清空 |
 
 模块 `AGENTS.md` 的「版本区」一节指回本表，只登记本模块那三份，不另抄一份清单。
@@ -101,7 +103,7 @@ node tools/gen-preset-bundle.mjs
 
 | 依赖包名 | 解析命令（运行时取值） | 当前解析结果 | 引用形式示例 |
 |---|---|---|---|
-| `@deepseek-ai/dsh` | 版本：`dsh --version`；仓库句柄的 `<ref>`：`git ls-remote --tags https://github.com/deepseek-ai/deepseek-harness "dsh-v*"`（取输出**最后一条**的 tag 名） | 版本 `0.2.0-rc.2`；tag `dsh-v0.2.0-rc.2` | 版本：`@deepseek-ai/dsh@0.2.0-rc.2`；上游句柄：`deepseek-ai/deepseek-harness@dsh-v0.2.0-rc.2:<path>` |
+| `@deepseek-ai/dsh` | 版本：`dsh --version`；仓库句柄的 `<ref>`：`git ls-remote --tags https://github.com/deepseek-ai/deepseek-harness "dsh-v*"`（取输出**最后一条**的 tag 名） | 版本 `0.2.1-rc.2`；tag `dsh-v0.2.1-rc.2` | 版本：`@deepseek-ai/dsh@0.2.1-rc.2`；上游句柄：`deepseek-ai/deepseek-harness@dsh-v0.2.1-rc.2:<path>` |
 | `@deepseek-ai/dsh-*`（`dsh-subagent` / `dsh-tool-subagent` / `dsh-compaction-basic` …） | `node -p "require('<该 profile 的 node_modules>/@deepseek-ai/dsh-*/package.json').version"` | 与上面同一个值 | 正文只写契约名（如 `toolFilter.allow`、`restrict()`、`auto`），要写版本时写"同 `@deepseek-ai/dsh` 的解析结果" |
 
 - **ref 的派生规则**：上游 tag 名 = `dsh-v` + `dsh --version` 的值（**不是** `v<版本>` —— 形状实测全是 `dsh-v*`）。升级后按解析命令重取，不要手抄。
@@ -123,6 +125,7 @@ node tools/gen-preset-bundle.mjs
 | 改权限子插件（`set_child_permission` 的守卫 / 写入路径 / 装载方式） | `permission/AGENTS.md` → `permission/design.md` | `permission/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-1 / 4c-2 / 4c-3 步 |
 | 改 `delegate` 插件本身（工具名 / 参数 / 内置 deny 名单 / 装载方式） | `delegate/AGENTS.md` | `delegate/design.md` → `delegate/testing-guide.md`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-2 / 4c-4 / 4c-5 步 |
 | 改设置页框架 / 加一项配置项 / 改通知三项的键与界（`adg-settings`） | `settings/AGENTS.md` → `settings/design.md` | `settings/testing-guide.md`；键名与默认值的真相只在 `settings/lib/schema.mjs`，消费方（`adg-notify`）改契约时两边都要动；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-3 / 4c-6 / 4c-7 步 |
+| 改思考框架注入（判据 / 降级 / section 位置 / SKILL 路径） | `skill-inject/AGENTS.md` → `skill-inject/design.md` | `skill-inject/testing-guide.md`；section 名 / order / 目标 preset 的常量只在 `skill-inject/lib/section.mjs`；装进 profile 的步骤见 `install.ps1` / `install.sh` 的 2b-4 / 4c-8 / 4c-9 步 |
 | 改浏览器那一段委派口径（模式 / 登录态 / 权限闸门） | `preset/design.md` 的「核心数据模型」里 SchedulerPersona 一节（浏览器模式闸门的选择理由在 `preset/agent.cordis.yml` 调度 persona 的 `【浏览器：模式】` 段） | `browser/AGENTS.md`（它消费的命令行契约）→ 根 `README.md` 的「浏览器工具链与登录态资产」一节 → 改完 `node tools/check-preset.mjs` |
 | 只是想装到本机 | `README.md` 的「安装」一节 | `install.sh` / `install.ps1` |
 | 改文档 | `adg-doc-criterion` 技能 | 本文件的「版本区」一节 |
@@ -137,6 +140,7 @@ node tools/gen-preset-bundle.mjs
 | 浏览器工具链 | 机检：`cd browser && node --test test`；改了 `browser/` 再按 `browser/testing-guide.md` 的「交付前的最小闭环」一节跑一次真机闭环 | 单元测试全绿；真机闭环每步的 `STATE=` 与期望一致 |
 | 通知子插件 | 机检：`cd notify && node --test test` | 全绿（零依赖，不弹窗） |
 | 权限子插件 | 机检：`cd permission && node --test test`（沙箱里加 `--test-isolation=none`）；改了守卫或写入路径再在**新会话**里对任一已派出的子代理真调一次 `set_child_permission` | 单元测试全绿；运行中那次 `applied=live`、已停下那次 `applied=persisted`、把权限改到超过调用方自己的那次被拒 |
+| 注入插件 | 机检：`cd skill-inject && node --test test`（纯函数，零依赖）；改了判据或接线再在**新 Adg 会话**里按 `skill-inject/testing-guide.md` 的 M1–M8 核（调度者有框架段 / 子代理没有 / 其他 preset 没有 / 设置页改正文下一轮就换 / 输入框「超思」chip 能关能开且与设置页同值） | 单元测试全绿；M1–M8 与期望一致 |
 | 委派插件 | 机检：`cd delegate && node --test test`（沙箱里加 `--test-isolation=none`）；再在**新会话**里让调度者真用一次 `delegate` | 单元测试全绿；返回的 `tools` / `tools_note` 与子代理实际拿到的工具面一致（点名未知名要被逐条剔除并记进 `tools_note`，点 `run_code` 当场抛错） |
 | 设置页框架 | 机检：`cd settings && node --test test`（沙箱里加 `--test-isolation=none`）与 `cd notify && node --test test`（消费方契约在两边各钉一份，改任一侧都要两边都绿）；再在**重启后的 dsh** 里打开设置看「Adg 设置」页 | 两边单元测试全绿；页面能读当前生效值（含来源）/ 改一项保存 / 恢复默认，刷新后仍然生效 |
 | 桌面工具链 | 机检：`cd desktop && node --test test`（沙箱里加 `--test-isolation=none`）；改了注入路径再按 `desktop/testing-guide.md` 的「交付前的最小闭环」在**完全权限**会话里跑一次真机闭环 | 单元测试全绿；真机闭环每步的 `CHANGED=` / `CURSOR_LANDED=` 与期望一致（只用 `--dry-run` 证明不了注入） |

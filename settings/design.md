@@ -33,8 +33,12 @@ last_reviewed: 2026-10-15
 | `consumer` | 谁读它（现只有 `adg-notify`）；漂移检查按它分组 | 测试 |
 | `labelKey` / `hintKey` | 客户端 DICT 的取字键（约定 `field.<key>.label` / `.hint`） | 客户端 |
 | `maxLength`（string）/ `min`+`max`（integer） | 界；字符串的界同时是消费方的长度上限 | 宿主、客户端、消费方 |
+| `allowEmpty`（string，可选） | `true` ＝ 空串 / 全空白算合法值（语义由消费方定义，如「留空＝跟随默认」） | 宿主校验、客户端 |
+| `multiline`（string，可选） | `true` ＝ 客户端画多行文本框（仍是 `kind: 'string'`，**不是**新 kind） | 客户端 |
 
-`FIELDS` 是这几条登记的冻结数组；`DEFAULTS` 由它派生。**现存三条**：`notifyTitle`（string，`maxLength: 80`，默认 `DSH 通知`）、`notifySound`（boolean，默认 `true`）、`notifyPersist`（boolean，默认 `true`）。三条的 `consumer` 都是 `adg-notify`。
+`FIELDS` 是这几条登记的冻结数组；`DEFAULTS` 由它派生。**现存五条、两个分组**：`notify` 组的 `notifyTitle`（string，`maxLength: 80`，默认 `DSH 通知`）、`notifySound`（boolean，默认 `true`）、`notifyPersist`（boolean，默认 `true`），`consumer` 都是 `adg-notify`；`skillInject` 组的 `skillInjectEnabled`（boolean，默认 `true`）与 `skillInjectText`（string，`maxLength: 20000`、`allowEmpty: true`、`multiline: true`，默认 `''` ＝ 跟随技能文件），`consumer` 都是 `adg-skill-inject`。
+
+`allowEmpty` 与 `multiline` 是**修饰**，不是新的 `kind`：它们只影响「这个字符串允许什么值」与「客户端画成什么控件」，宿主的 `validValue` / `refuseMessage` 与客户端的控件选择都读同一条登记项 —— 所以加一个多行可空文本项仍然只是「加一条登记 + 两条文案」。
 
 `kind: 'integer'` 是**框架备好的、当前没有字段在用**的分支（`FIELDS` 里还没有 integer 项）：它的校验由自测用合成字段覆盖。第一个整数项（比如"通知存活毫秒"）落进来之前要先问用户。
 
@@ -59,15 +63,18 @@ stored（<DSH_PROFILE_DIR | DSH_HOME | ~/.dsh>/adg-settings.json，见 2.3）  >
 - 宿主半边：`ctx.inject(['webServer'], …)` 注册 `{ kind: 'prefix', path: '/api/adg-settings', handler }`；只有 `/settings` 这条子路由。
 - 浏览器半边：`window.__ModuleLoader__.load({ id: 'adg-settings', factory })`，只 `require('react')`；注册进 `settings.section` 插槽（`id: 'adg-settings'`、`order: 38`、`label: () => t('nav')`、`locale: NS`）。
 
-### 2.5 消费方（`adg-notify`）
+### 2.5 消费方（`adg-notify` 与 `adg-skill-inject`）
 
 ```text
 notify/lib/user-settings.mjs:
   readUserDefaults()            # 宽容读设置文件（坏值丢、缺项回落出厂默认），绝不抛错
   resolveRequest(args, defaults) # 本次调用参数 > 设置页值；只写偏离默认的字段
+
+skill-inject/lib/user-settings.mjs:
+  readUserDefaults()            # 同一个文件、同一种宽容读法，只读自己那两键
 ```
 
-生产接线在 `notify/index.mjs` 的 `apply()`：`defaults: () => readUserDefaults()` —— 每次调用重读一次文件。**这是"保存后立即生效"的全部实现**：文件是契约，不是热重载通道。
+生产接线：`notify/index.mjs` 的 `apply()` 里 `defaults: () => readUserDefaults()` —— 每次调用重读一次文件；`skill-inject/index.mjs` 的 `sectionTextNow()` 在**每次组装系统提示词**时重读一次文件（关掉就返回空串，空 section 渲染时被丢弃）。**这是"保存后立即生效"的全部实现**：文件是契约，不是热重载通道。两个消费方都**不 import `adg-settings` 包**（I1）。
 
 ## 3. 不变量
 
@@ -84,7 +91,7 @@ notify/lib/user-settings.mjs:
 - **I11 路由只认 `/settings`**（其余 404）、**方法只认 `GET` / `POST` / `DELETE`**（其余 405）。守卫：「路由表」用例。
 - **I12 `export const name` === `cordis.patch.yml` 的 `id` === 包名。** 行落全局层，重名注册会拖垮整个 profile。守卫：契约用例 + 仓库根 `node tools/check-preset.mjs`。
 - **I13 客户端 DICT 覆盖登记表里的每一条 `labelKey` / `hintKey`（zh 与 en 各一份）。** 守卫：文本级计数用例。
-- **I14 设置生效不需要重启。** 保存后第二次 `GET` 就反映真相；`adg-notify` 的下一次调用就读到新值。
+- **I14 设置生效不需要重启。** 保存后第二次 `GET` 就反映真相；`adg-notify` 的下一次调用、`adg-skill-inject` 的下一次系统提示词组装都读到新值。**输入框里那颗「超思」开关**（`skill-inject/client.js`）走的是同一个 `POST`，所以它和设置页是同一份真相的两个入口，不存在第二份开关状态。
 
 ## 4. 接口
 
@@ -119,13 +126,14 @@ notify/lib/user-settings.mjs:
 - `settings/lib/schema.mjs`：`KINDS` / `FIELDS` / `DEFAULTS` / `fieldFor(key)` / `refuseMessage(field)` / `validValue(field, raw)` / `normalizeSettings(raw, logger?, where?)` → `{settings, unknown, dropped}` / `buildEffective({stored, configured, defaults})` → `{value, origin}` / `describeFields()`。
 - `settings/client.js`：`exports.apply` / `exports.inject = ['slots','locale']` / `exports.name`（ModuleLoader bundle 的三件套）。
 - `notify/lib/user-settings.mjs`（消费方）：`STORE_NAME` / `MAX_TITLE_LENGTH` / `AUTO_DISMISS_MS` / `USER_DEFAULTS` / `settingsFile()` / `readUserDefaults(file?)` / `resolveRequest(args?, defaults?)`。
+- `skill-inject/lib/user-settings.mjs`（第二个消费方）：`STORE_NAME` / `MAX_TEXT_LENGTH` / `USER_DEFAULTS` / `settingsFile()` / `readUserDefaults(file?)`。它与 `adg-notify` 那份**故意各写一份**（同样的理由：不许 import 本包），两边同名常量靠 `settings/test` 的漂移用例钉住。
 
 ## 5. 加一项配置的步骤
 
 1. `settings/lib/schema.mjs` 的 `FIELDS` 加一条登记（**先问用户**）。
 2. （可选）`settings/cordis.patch.yml` 的 `config:` 加上同名默认 —— 只影响"页面还没保存过"时的回退值，**不是**第二份真相。
 3. `settings/client.js` 的 DICT 加 `field.<key>.label` 与 `.hint` 的 **zh + en** 各一份（分组名要给 `group.<group>`）。
-4. 消费方接线：读**文件**（照着 `notify/lib/user-settings.mjs` 的宽容读法），不要 import 本包。
+4. 消费方接线：读**文件**（照着 `notify/lib/user-settings.mjs` 或 `skill-inject/lib/user-settings.mjs` 的宽容读法），不要 import 本包。若这一项还要在**别处**有个开关（例如输入框里的 chip），那处开关也只能走同一个 `POST` / `GET`，不许自己存一份状态。
 5. 跑 `cd settings && node --test test`（会连带核漂移）与消费方模块的测试。
 
 宿主与客户端的逻辑**一行都不用改** —— 这就是"框架"的含义。
@@ -136,6 +144,8 @@ notify/lib/user-settings.mjs:
 - **为什么显示 `origin`**：三层优先级的代价是"我改的为什么没生效"。把来源打在页面上，把排查变成看一眼。
 - **为什么未知键 400 而不是忽略**：一个旧页面写回一个已经删掉的键，静默吞掉会让用户以为保存成功；400 让 STS/页面当场报错。
 - **为什么消费方读文件而不是 import**：见 I1（profile 可能只装一半）。
+- **为什么 `skillInjectText` 用「空串＝跟随技能文件」而不是「空串＝不注入」**：两个诉求（"我要自己写框架"和"我想用仓库那份"）不该靠两套开关表达。空串是一个**合法值**（所以有 `allowEmpty`），语义由消费方定 —— 空串就去读 `skills/thinking-framework/SKILL.md`；要"完全不注入"用旁边那个布尔开关，语义不重叠。
+- **为什么注入开关同时出现在设置页和输入框**：设置页是"我改配置"的入口，输入框 chip 是"这次我想临时关掉"的入口；两者都写同一个键、都走同一条 `POST`，所以不存在"两个开关打架"的第三种状态。
 - **为什么 `notifyPersist` 用布尔而不是毫秒数**：用户要的是"常驻 / 不常驻"这一个决定；毫秒数属于技术细节。关掉常驻时用的是**改成常驻之前的原有默认值** `8000ms`（`AUTO_DISMISS_MS`），不引入新的旋钮。
 - **为什么 `order: 38`**：36 = `dsh-insert-context`、37 = `dsh-subagent-mgm`、430 = `dsh-plugin-save-token` 已占用；本页排在这三者之后。
 - **为什么只有一条 `/settings` 子路由**：设置页只需要读/写/清三种动作，方法已经能表达，不需要更多路径。

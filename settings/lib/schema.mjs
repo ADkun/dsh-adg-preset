@@ -22,6 +22,11 @@ export const KINDS = Object.freeze(['boolean', 'string', 'integer']);
 /**
  * 字段登记表。数组顺序 = 页面顺序；`group` 相同的一组进同一张卡片。
  * `consumer` 记「谁读这个键」，改动时按它去核对消费方（不参与运行时）。
+ *
+ * 可选的显示 / 校验修饰（都只在这张表里写，宿主与客户端都不另立一份）：
+ *   - `allowEmpty: true` —— 字符串允许空值（「留空 = 跟随默认」的语义由消费方定义）。
+ *     不加这一条时，空串与全空白一律算非法值（I2 的默认值也必须能过自己的 validValue）。
+ *   - `multiline: true` —— 客户端把它画成多行文本框（仍是 `kind: 'string'`，不是新 kind）。
  */
 export const FIELDS = Object.freeze([
   Object.freeze({
@@ -52,6 +57,27 @@ export const FIELDS = Object.freeze([
     labelKey: 'field.notifyPersist.label',
     hintKey: 'field.notifyPersist.hint',
   }),
+  Object.freeze({
+    key: 'skillInjectEnabled',
+    kind: 'boolean',
+    group: 'skillInject',
+    default: true,
+    consumer: 'adg-skill-inject',
+    labelKey: 'field.skillInjectEnabled.label',
+    hintKey: 'field.skillInjectEnabled.hint',
+  }),
+  Object.freeze({
+    key: 'skillInjectText',
+    kind: 'string',
+    group: 'skillInject',
+    default: '',
+    allowEmpty: true,
+    multiline: true,
+    maxLength: 20000,
+    consumer: 'adg-skill-inject',
+    labelKey: 'field.skillInjectText.label',
+    hintKey: 'field.skillInjectText.hint',
+  }),
 ]);
 
 /** 内置默认值（I2：每一条都必须能通过 `validValue`）。 */
@@ -69,6 +95,9 @@ export function refuseMessage(field) {
   if (field.kind === 'boolean') return `${field.key} must be true or false`;
   if (field.kind === 'integer') {
     return `${field.key} must be an integer between ${field.min} and ${field.max}`;
+  }
+  if (field.allowEmpty === true) {
+    return `${field.key} must be a string of at most ${field.maxLength} characters (empty means "use the default")`;
   }
   return `${field.key} must be a non-empty string of at most ${field.maxLength} characters`;
 }
@@ -102,7 +131,9 @@ export function validValue(field, raw) {
     return value;
   }
   if (typeof raw !== 'string') return undefined;
-  if (raw.trim() === '' || raw.length > field.maxLength) return undefined;
+  if (raw.length > field.maxLength) return undefined;
+  if (field.allowEmpty === true) return raw;
+  if (raw.trim() === '') return undefined;
   return raw;
 }
 

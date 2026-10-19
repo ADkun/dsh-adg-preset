@@ -44,9 +44,16 @@ window.__ModuleLoader__.load({
         'field.notifySound.hint': '关闭后通知静音弹出，只在屏幕上显示。',
         'field.notifyPersist.label': '通知常驻',
         'field.notifyPersist.hint': '开启时通知不自动消失，需要你自己关掉；关闭后约 8 秒自动消失。',
+        'group.skillInject': '思考框架注入',
+        'field.skillInjectEnabled.label': '注入思考框架',
+        'field.skillInjectEnabled.hint':
+          '开启后，Adg 调度智能体的系统提示词里会带上思考框架正文（子代理不带）。输入框左侧那颗「超思」开关改的是同一个值。',
+        'field.skillInjectText.label': '注入正文',
+        'field.skillInjectText.hint':
+          '留空就用技能文件（skills/thinking-framework/SKILL.md）的正文，改技能文件即改注入内容；填了就以这里的文本为准（不再读文件）。保存后下一次请求生效。',
         save: '保存',
         saving: '保存中…',
-        saved: '已保存，下一次 notify_user 起生效',
+        saved: '已保存，立即生效（通知在下一次 notify_user、思考框架在下一次请求）',
         reset: '恢复默认',
         resetting: '恢复中…',
         resetDone: '已删除设置文件，回到插件配置与内置默认',
@@ -63,7 +70,9 @@ window.__ModuleLoader__.load({
         fromConfigured: '目前的值来自插件配置或内置默认，尚未写入设置文件。',
         unknown: '设置文件里有 {n} 个认不得的键（可能是旧版本留下的），本页不会动它们。',
         dropped: '设置文件里有 {n} 个不合法的值被忽略，宿主日志里有明细。',
-        note: '这些项只影响本插件的行为，保存后立即生效，不需要重启。',
+        note: '这些项只影响本仓库第一方子插件的行为，保存后立即生效，不需要重启。',
+        useSkillFile: '留空即使用 skills/thinking-framework/SKILL.md 的正文',
+        emptyValue: '（空，跟随默认）',
         errText: '「{label}」不能为空，且最多 {max} 个字符',
         errInt: '「{label}」必须是 {min}–{max} 之间的整数',
         loading: '正在读取…',
@@ -87,9 +96,16 @@ window.__ModuleLoader__.load({
         'field.notifyPersist.label': 'Keep the notification on screen',
         'field.notifyPersist.hint':
           'When on, the toast stays until you dismiss it; when off it disappears after about 8 seconds.',
+        'group.skillInject': 'Thinking-framework injection',
+        'field.skillInjectEnabled.label': 'Inject the thinking framework',
+        'field.skillInjectEnabled.hint':
+          'When on, the Adg scheduler prompt carries the thinking-framework text (subagents never get it). The “Thinking” chip in the composer flips the same value.',
+        'field.skillInjectText.label': 'Injected text',
+        'field.skillInjectText.hint':
+          'Leave empty to use the skill file (skills/thinking-framework/SKILL.md); fill it in to inject exactly this text instead (the file is then ignored). Applies from the next request.',
         save: 'Save',
         saving: 'Saving…',
-        saved: 'Saved; live from the next notify_user call',
+        saved: 'Saved; live immediately (notifications on the next notify_user, the framework on the next request)',
         reset: 'Restore defaults',
         resetting: 'Restoring…',
         resetDone: 'The settings file is gone; the plugin Config and built-in defaults are back',
@@ -106,7 +122,9 @@ window.__ModuleLoader__.load({
         fromConfigured: 'Nothing saved here yet; the plugin Config or the built-in defaults are in use.',
         unknown: 'The settings file has {n} key(s) this page does not know (an older version may have left them); nothing here touches them.',
         dropped: 'The settings file had {n} invalid value(s) that were ignored; the host log names them.',
-        note: 'These options only affect this plugin; saving takes effect immediately, with no restart.',
+        note: 'These options only affect this repository’s first-party plugins; saving takes effect immediately, with no restart.',
+        useSkillFile: 'Leave empty to use skills/thinking-framework/SKILL.md',
+        emptyValue: '(empty — follows the default)',
         errText: '“{label}” cannot be empty and takes at most {max} characters',
         errInt: '“{label}” must be an integer between {min} and {max}',
         loading: 'Reading…',
@@ -139,6 +157,9 @@ window.__ModuleLoader__.load({
       '.as_input:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
       '.as_input:disabled{opacity:.45}',
       '.as_inputBad{border-color:var(--dsw-alias-state-error-primary)}',
+      '.as_textarea{font:inherit;font-size:12.5px;box-sizing:border-box;width:100%;min-height:150px;padding:8px 10px;border-radius:9px;border:1px solid var(--dsw-alias-border-l2);background:var(--dsw-alias-bg-base);color:var(--dsw-alias-label-primary);resize:vertical;line-height:1.5}',
+      '.as_textarea:focus{outline:none;border-color:var(--dsw-alias-brand-primary)}',
+      '.as_textarea:disabled{opacity:.45}',
       '.as_hint{font-size:11.5px;color:var(--dsw-alias-label-secondary)}',
       '.as_actions{display:flex;align-items:center;gap:10px;flex-wrap:wrap}',
       '.as_btn{font:inherit;font-size:12px;padding:6px 14px;border-radius:9px;border:1px solid var(--dsw-alias-brand-primary);background:var(--dsw-alias-brand-primary);color:var(--dsw-alias-bg-base);cursor:pointer}',
@@ -182,7 +203,10 @@ window.__ModuleLoader__.load({
         return '';
       }
       const text = String(draft ?? '');
-      if (text.trim() === '' || text.length > field.maxLength) {
+      if (text.length > field.maxLength) {
+        return fill(t('errText'), { label: t(field.labelKey), max: field.maxLength });
+      }
+      if (field.allowEmpty !== true && text.trim() === '') {
         return fill(t('errText'), { label: t(field.labelKey), max: field.maxLength });
       }
       return '';
@@ -202,7 +226,10 @@ window.__ModuleLoader__.load({
     /** 「当前生效」里的一个值：开关说开/关，别的原样。 */
     function displayValue(t, field, value) {
       if (field.kind === 'boolean') return value === true ? t('on') : t('off');
-      return String(value ?? '');
+      const text = String(value ?? '');
+      if (field.allowEmpty === true && text.trim() === '') return t('emptyValue');
+      if (field.multiline === true && text.length > 120) return `${text.slice(0, 120)}…`;
+      return text;
     }
 
     /** 一格的值来自哪一层。 */
@@ -355,6 +382,19 @@ window.__ModuleLoader__.load({
             input.min = field.min;
             input.max = field.max;
             input.step = 1;
+          } else if (field.multiline === true) {
+            return h('div', { className: 'as_field', key: field.key },
+              h('span', { className: 'as_fieldLabel' }, t(field.labelKey)),
+              h('textarea', {
+                ...input,
+                className: error === '' ? 'as_textarea' : 'as_textarea as_inputBad',
+                rows: 8,
+                maxLength: field.maxLength,
+                placeholder: t('useSkillFile'),
+                spellCheck: false,
+              }),
+              error === '' ? null : h('span', { className: 'as_fieldErr', role: 'alert' }, error),
+              h('span', { className: 'as_hint' }, t(field.hintKey)));
           } else {
             input.type = 'text';
             input.maxLength = field.maxLength;
