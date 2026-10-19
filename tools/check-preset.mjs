@@ -19,10 +19,10 @@
 //      完整口径与三种例外见调度 persona 的【技能】段；理由见 preset/design.md；
 //   6. 文件顶部调度 persona 的「你手上的子代理」段里提到的委派工具名与委派行一一对应（双向，不能只加行
 //      不改名册）；子代理的 `tools` 名单是运行期动态值，静态扫描器看不见，不在这里校验；
-//   6b. 顶部调度 persona 的 `suffix` 字段行在位、取值逐字等于部署默认那句
-//      `Your working directory is {{cwd}}.`（standard preset 与各 surface 的 `personaSuffix` 同文）——
-//      `@deepseek-ai/dsh-persona` 的 schema 默认值是空串，缺字段时它照样按名字遮蔽 global 层那句，
-//      再在渲染期被丢掉：不是"回落"，是整句消失（见 preset/design.md 的 SchedulerPersona 一节）；
+//   6b. 顶部调度 persona **不设** `suffix` 字段行 —— 0.2.1-rc.2 起 `{{cwd}}` 不再是注册的
+//      prompt 变量（只有 `provider` / `model`），persona suffix section 没设 `interpolate:false`，
+//      走插值路径会抛 `unknown prompt variable "{{cwd}}"`；工作目录改由 `working-directory:current`
+//      运行时上下文提供（`interpolate:false`，渲染成 `Current working directory: ...`）；
 //   7. 三组体积旋钮（共 8 个键）**刻意不被覆盖**，且承载它们的三行结构完好：
 //      `compaction-basic` 的 thresholdRatio / retainRatio、`tool-result-pruner` 的
 //      thresholdChars / headChars / tailChars、`tool-web` 的 fetchMaxOutputChars /
@@ -420,14 +420,15 @@ else {
   }
 }
 
-// ── 6b. 调度 persona 的 suffix（会话工作目录那句）───────────────────────────
-// 纯文本扫描：先把 `- id: persona` 那段（到下一个缩进不深于它的非空行为止）切出来，再在段内找
-// `suffix:` 字段行 —— 不去猜 YAML 层级，也不需要它。取值必须逐字等于部署默认那句：这是
-// standard preset 与各 surface 的 `personaSuffix` 共用的文本（见 preset/design.md）。
-const CWD_SUFFIX = 'Your working directory is {{cwd}}.'
+// ── 6b. 调度 persona 不设 suffix（0.2.1-rc.2 起 {{cwd}} 不再是注册 prompt 变量）──
+// 纯文本扫描：把 `- id: persona` 那段切出来，检查段内没有非空 `suffix:` 字段行。
+// 0.2.1-rc.2 里 `{{cwd}}` 不是注册的 prompt 变量（只有 `provider` / `model`），
+// persona suffix section 没设 `interpolate:false`，走插值路径会抛
+// `unknown prompt variable "{{cwd}}"`。工作目录改由 `working-directory:current`
+// 运行时上下文提供（`interpolate:false`，渲染成 `Current working directory: ...`）。
 const personaStart = lines.findIndex((line) => /^\s*- id: persona\s*$/.test(line))
 if (personaStart < 0) {
-  fail('没找到顶层 persona 的 `- id: persona` 行：调度 persona 与它遮蔽的部署默认段都失去落点（应当只有一份，带 `suffix:` 与 `prefix: |-` 两个字段）')
+  fail('没找到顶层 persona 的 `- id: persona` 行：调度 persona 失去落点（应当只有一份，带 `prefix: |-` 字段）')
 } else {
   const personaBlock = []
   for (let cursor = personaStart + 1; cursor < lines.length; cursor += 1) {
@@ -436,13 +437,8 @@ if (personaStart < 0) {
     personaBlock.push(line)
   }
   const suffixLines = personaBlock.filter((line) => /^\s*suffix:\s*\S/.test(line))
-  if (suffixLines.length === 0) {
-    fail(`persona 段里没有 \`suffix:\` 字段行：schema 默认值是空串、渲染期会被丢弃，于是 \`${CWD_SUFFIX}\` 整句消失 —— 缺字段不是"回落到 global 层那句"`)
-  } else if (suffixLines.length > 1) {
-    fail(`persona 段里有 ${suffixLines.length} 行 \`suffix:\`：同一段只允许一行，多余的那些按行序互相覆盖，读到的就不再是那句部署默认文本`)
-  } else {
-    const got = suffixLines[0].replace(/^\s*suffix:\s*/, '').trim()
-    if (got !== CWD_SUFFIX) fail(`persona 的 \`suffix:\` 取值不是部署默认那句：期望 \`${CWD_SUFFIX}\`，实际 \`${got}\``)
+  if (suffixLines.length > 0) {
+    fail(`persona 段有非空 \`suffix:\` 字段行：0.2.1-rc.2 起 \`{{cwd}}\` 不再是注册 prompt 变量，persona suffix section 走插值路径会抛 \`unknown prompt variable\`。删掉 \`suffix:\` 字段行；工作目录由 \`working-directory:current\` 运行时上下文提供（见 preset/design.md 的 SchedulerPersona 一节）`)
   }
 }
 

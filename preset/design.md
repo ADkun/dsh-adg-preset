@@ -102,14 +102,14 @@ stateDiagram-v2
 
 ### SchedulerPersona（不可变值对象）
 
-调度智能体的 persona 段，写在 `preset/agent.cordis.yml` 顶部的 `- id: persona` 行里，`config` 下只有 `suffix` 与 `prefix` 两个字段（与 standard preset 的 persona 行同形）。它是一个**结构固定的文本**：四个大标题 `## 目标` / `## 你手上的子代理`（名册）/ `## 约束` / `## 验收标准`。它**不是**流程脚本：只规定目标、约束、验收标准，不规定每一步的产出与固定格式。
+调度智能体的 persona 段，写在 `preset/agent.cordis.yml` 顶部的 `- id: persona` 行里，`config` 下只有 `prefix` 一个字段（与 standard preset 及各 surface 的 persona 行同形：0.2.1-rc.2 起 `personaSuffix` 部署默认为空串，工作目录改由 `working-directory:current` 运行时上下文提供）。它是一个**结构固定的文本**：四个大标题 `## 目标` / `## 你手上的子代理`（名册）/ `## 约束` / `## 验收标准`。它**不是**流程脚本：只规定目标、约束、验收标准，不规定每一步的产出与固定格式。
 
 - `## 约束` 由 11 个 **顶级** `【…】` 段组成（拆解立目标 / 要不要派 / 派给谁 / 派几次 / 怎么发 / 委派里写什么 / 技能 / 中转材料 / 浏览器：权限 / 浏览器：模式 / 不确定就问）；数 `【…】` 标记会多数出几个 —— 其中「【拆解立目标】」内含【目标】/【要干什么】/【不要干什么】/【验收标准】四个**子项**，它们是该段的子结构，不是顶级段。思考框架的装载不在这份 persona 里：它由第一方插件 `adg-skill-inject` 在 agent 创建时把技能正文直接注入调度者系统提示词（见 `skill-inject/design.md`）—— persona 级的"先读技能"指令已被证过依赖模型自觉，不可靠。
 - `## 验收标准` 在位的是**两段**：第 1 段＝按【拆解立目标】里定下的【验收标准】逐条判定的判据；第 2 段＝交付纪律与分段交付，它**以加粗的「面向用户的输出以人类可读性为第一原则」开头**，并当场写明范围＝直接答复 + 文档 / 报告 / 表格 / 幻灯片等一切用户看得到的成果（委派产出这类成果时把这条写进委派）。
 - 不变量：
   - **I22**：禁止删掉或改写 `## 约束` 与 `## 验收标准` 这两个锚段的内容 —— 判据是**对抗评审**（自检不覆盖锚段内容与在位：`tools/check-preset.mjs` 只做逐行文本扫描，不检查这两个锚段；评审时逐段对照 `preset/agent.cordis.yml` 的调度 persona，判据见 `preset/testing-guide.md` 的「用例总表」里锚段在位与锚段语义那两条用例）。**现行形态是 11 段**：原【需要用户本人的事】段已刻意删除（它的两条必要口径并入【浏览器：模式】与【不确定就问】），除此之外仍禁止增删改写。
   - **I23**：禁止把这两个锚段改写成预算、字数上限或分步流程 —— 它们约束的是"派给谁 / 派几次 / 材料怎么中转 / 写下来的东西怎么组织"，不是"单个子代理能读多少、能写多少"。
-- `suffix` 字段**在位**，取值 `Your working directory is {{cwd}}.`（standard preset 与各 surface 的部署默认 `personaSuffix` 同文）：调度者与标准模式读到**同一句**会话工作目录。取值来自会话头 `header.cwd`，同一会话内不可改（改动抛 `ApiSessionCwdConflict`；换工作区等于新会话）。段按**名字**合并、"最近作用域的名字覆盖全局"（`@deepseek-ai/dsh-scope` 的 `merge()`：`the nearest scope's entry wins a name`；`@deepseek-ai/dsh-system-prompt` 组装时同名只留一份），空文本在渲染期被丢弃（同包 `filter((text) => text.length > 0)`）—— 所以**删掉 `suffix:` 这一个字段行不会回落到 global 层那句**：`@deepseek-ai/dsh-persona` 的 schema 默认值是空串，它照样按名字遮蔽 global 层那句 `personaSuffix`，再在渲染期被丢掉。字段行在位与取值逐字一致由 `tools/check-preset.mjs` 钉住。
+- `suffix` 字段**不在位**（刻意删去）：0.2.1-rc.2 起 `{{cwd}}` 不再是注册的 prompt 变量（`dsh-agent-loop` 只注册 `provider` / `model`），而 persona suffix section 没设 `interpolate:false`，走插值路径会抛 `unknown prompt variable "{{cwd}}"`。上游 `dsh-web-app/cordis.patch.yml` 同期也删掉了 `personaSuffix`（部署默认回落到 schema 的空串），工作目录改由 `dsh-working-directory` 注册的 `working-directory:current` 运行时上下文提供（`interpolate:false`，渲染成 `Current working directory: ...`）。删掉 `suffix:` 字段行后，`@deepseek-ai/dsh-persona` 的 schema 默认值（空串）生效，同名 section 在渲染期被 `filter((text) => text.length > 0)` 丢弃。字段不存在由 `tools/check-preset.mjs` 钉住。
 
 ## 对外接口
 
